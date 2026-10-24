@@ -1,44 +1,68 @@
 # PV Loss Auditor
 
-> Work in progress. This README will be rewritten as a case study
-> (problem → method → result in EUR) in the final phase.
+Diagnoses underperformance of a PV plant using measured data: compares actual
+generation with weather-corrected expected generation, computes plant KPIs and
+breaks the energy gap down by cause into a loss waterfall in kWh and USD
+(expected → temperature → clipping → downtime → residual).
 
-Diagnoses underperformance of a PV plant: compares actual generation with
-weather-corrected expected generation, computes plant KPIs
-(temperature-corrected Performance Ratio, specific yield, availability)
-and breaks losses down by cause into a loss waterfall in kWh and EUR.
+## Motivation
+The output is designed like a monthly O&M performance report: energy vs expected,
+Performance Ratio, availability, loss breakdown and recommendations.
+Here the input is public PVDAQ files; in a real company the same pipeline would
+connect to SCADA or a monitoring platform.
 
-## Data sources
-- **NREL PVDAQ** (public OEDI S3 bucket `oedi-data-lake/pvdaq`): measured plant data
-- **Open-Meteo**: historical weather (satellite/reanalysis alternative to on-site sensors)
-- **ENTSO-E / Nord Pool**: day-ahead electricity prices, Lithuania (LT bidding zone)
+## Data
+- **NREL PVDAQ** (Photovoltaic Data Acquisition), public OEDI S3 bucket
+  `s3://oedi-data-lake/pvdaq/`, licence CC BY 4.0.
+  DOI: [10.25984/1846021](https://doi.org/10.25984/1846021).
+  Measured plant data: AC power, POA irradiance, module temperature.
+- **Open-Meteo**: historical weather, used as a satellite/reanalysis alternative
+  to on-site sensors.
+- **US electricity prices**, chosen to match the plant's location and connection type:
+  - grid-connected plant in an ISO: ISO day-ahead LMP (via `gridstatus`);
+  - behind-the-meter system: utility/state commercial tariff (EIA);
+  - plant outside ISO regions: regional wholesale estimate (EIA).
 
-## Stack
-Python, pandas, pvlib, pvanalytics, RdTools, scikit-learn, plotly, Streamlit.
+  Losses are reported in USD (optional EUR conversion). The price assumption is
+  stated explicitly in the results.
 
-## Setup
+## Methods
+- **pvlib**: expected yield model (ModelChain, temperature and inverter models).
+- **pvanalytics**: data QA, clipping detection.
+- **RdTools**: year-on-year degradation, soiling (SRR).
+- **Isolation Forest** (scikit-learn) on residuals (measured minus modelled power),
+  not on raw power.
+- **KPIs** per IEC 61724-1: temperature-corrected Performance Ratio, specific yield,
+  availability.
+
+## Project status
+- [x] Phase 0: repo skeleton, environment
+- [ ] Phase 1: data selection and QA
+- [ ] Phase 2: expected yield model and KPIs
+- [ ] Phase 3: loss waterfall MVP (kWh and USD)
+- [ ] Phase 4: degradation and soiling (RdTools); on-site sensor vs Open-Meteo
+- [ ] Phase 5: anomaly detection on residuals; synthetic string faults
+- [ ] Phase 6: Streamlit dashboard; case-study write-up
+
+## How to reproduce
+Windows PowerShell, Python 3.13:
 ```powershell
 py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
+Download data (script to be added in Phase 1):
+```powershell
+# python -m src.download_data   (placeholder)
+```
 
-## Repo layout
+## Repository structure
 ```
 data/raw/          # downloaded data (not committed)
 data/processed/    # cleaned parquet files (not committed)
 notebooks/         # analysis notebooks, one per phase
-src/               # reusable functions (loading, qa, model, losses, anomalies)
+src/               # reusable functions (loading, QA, model, losses, anomalies)
 app/               # Streamlit dashboard
 reports/figures/   # figures used in this README
 ```
-
-## Status
-- [x] Phase 0: repo skeleton, environment
-- [ ] Phase 1: data selection and QA
-- [ ] Phase 2: expected yield model and KPIs
-- [ ] Phase 3: loss waterfall MVP (kWh and EUR)
-- [ ] Phase 4: degradation and soiling (RdTools); on-site sensor vs Open-Meteo
-- [ ] Phase 5: anomaly detection on residuals
-- [ ] Phase 6: Streamlit dashboard and case-study write-up

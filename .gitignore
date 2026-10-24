@@ -21,6 +21,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# Streamlit secrets (API keys, e.g. ENTSO-E token)
+# Secrets (API keys, e.g. EIA key for price data)
 .streamlit/secrets.toml
 .env
