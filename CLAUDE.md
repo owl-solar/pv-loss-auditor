@@ -40,6 +40,31 @@ Candidates and screening: `reports/station_candidates.md`.
   Switching to it as the main system requires my decision.
 - **9068** SR_CO — excluded: tracker, not in project scope.
 
+## Analysis period
+**9069: 2020-05 … 2023-11** (43 months, 5-min data). Chosen from the full-period coverage map
+(`notebooks/01_data_qa.ipynb`, section "Data coverage and sensor availability",
+`reports/figures/9069_data_coverage.png`; point sampling, accuracy about ±15 percentage points).
+In this period, share of daylight snapshots with a valid value (mean; months below 90 %):
+- AC power, inverters 01/10/30: 100 % (0 months); plant meter 2: 100 % (0 months).
+  Meter 2 exists only from 2020-03-26; meter 1 has no data after 2019-04-04.
+- POA reference cells 01 / 04 / 10: 98–99 % (3 / 1 / 1 months); all three ≥ 90 % in 40 of 43 months.
+- Module temperature, thermocouples 01 / 03 / 06 s1 / 10: 96–99 % (3–5 months each, worst:
+  tc 03 in 2020-06 at 20 %, tc 01 in 2020-12 at 57 %); ≥ 2 of the 4 are ≥ 90 % in 40 of 43 months.
+- Irradiance file has 5-min steps (15-min from 2018-04 to 2020-03). Only gap > 1 day in the
+  period: irradiance 2021-12-23 → 2021-12-25. No month with fewer than 3 daylight snapshots.
+
+**Rejected: candidate 2 (2018-04 … 2023-11).** Thermocouples work at only 0–57 % per month
+(typically 11–57 %) in 2018-04 … 2020-04, on all sensors at once (looks like a logger problem);
+two more irradiance gaps (6 d, 12 d); meter 1 → meter 2 switch with a 357-day hole.
+
+**What 2019 actually contains** (so it is not mistaken for an empty year): inverter AC ≈ 100 %
+all year; POA reference cells 01 / 04 / 10 ≈ 100 % all year; environment file continuous, but
+valid thermocouple values only 11–50 % per month (0 % in November); irradiance at 15-min steps
+with gaps 2019-01-27 → 02-02 (6 d) and 2019-11-20 → 11-21 (1 d), GHI 0 % in 2019-08 … 10,
+pyranometer 02B 0 % in 2019-09 … 12; meter file has **no rows** from 2019-04-04 07:00 to
+2020-03-26 06:55 (357 d), meter 1 is the only meter reporting before that. The 2019 sample was
+skipped only because meter, thermocouple and 5-min irradiance data are missing there.
+
 ## Constraints
 - Mobile internet: minimize traffic.
 - Always estimate download size and ask before any download > 100 MB.
@@ -56,10 +81,15 @@ Candidates and screening: `reports/station_candidates.md`.
   implausible DC/AC 1.88 vs 0.47 at equal 825 kW; strings × modules = 129 200 vs 129 390 modules
   in the module table.
 - 9069 module γ = −0.28 %/°C for the 295 W multi-Si module (typical −0.40…−0.45). Check in Phase 2.
-- 9069 sample period: 2019 skipped (meter gap 2019-04-04 07:00 → 2020-03-26 06:55; irradiance at
-  15-min steps), sample uses Jun + Dec 2020. In 2020 several approved channels are empty
-  (pyranometer 02A, thermocouples 02 s2 / 08 s1, meter 1) and class-A pyranometers report in June
-  only. Channel choice and analysis period depend on a full-period coverage map (pending).
+- 9069 POA after 2022-05: class-A pyranometers are gone (02B: 0 % from 2022-06; 08: 0 % from
+  2020-09; GHI pyranometer 12: 0 % from 2022-04), so PR will rely on reference cells 01 / 04 / 10.
+  Reference cells and pyranometers differ in spectral and angle-of-incidence response, so check
+  cell drift against pyranometer 02B over 2020-07 … 2022-04 (02B is 60–100 % there; 0 % in
+  2020-05, 50 % in 2022-05) and document the result in Phase 2.
+- 9069 sample files (Jun + Dec 2020) keep only the 11 channels chosen before the coverage map;
+  several of them are empty in 2020 (pyranometer 02A, thermocouples 02 s2 / 08 s1, meter 1).
+  Channels for the analysis period must be re-selected (reference cells, thermocouples
+  01 / 03 / 06 s1 / 10, meter 2); the cached slices cannot be reused for them.
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (ModelChain, temperature and inverter models), **pvanalytics** (data QA, clipping detection), **RdTools** (YoY degradation, SRR soiling), scikit-learn, plotly, Streamlit.

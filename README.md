@@ -16,6 +16,15 @@ connect to SCADA or a monitoring platform.
   `s3://oedi-data-lake/pvdaq/`, licence CC BY 4.0.
   DOI: [10.25984/1846021](https://doi.org/10.25984/1846021).
   Measured plant data: AC power, POA irradiance, module temperature.
+  - **Station: 9069 (Simon Solar Farm, Social Circle, GA)**: fixed-tilt ground mount
+    (20° / 180° per metadata, to be verified in QA), 38.7 MWp DC, 40 inverters, 5-min data.
+    Chosen from a shortlist of five stations (`reports/station_candidates.md`).
+  - **Analysis period: 2020-05 … 2023-11** (43 months): inverter AC power, the plant meter,
+    three POA reference cells and four module-temperature sensors all report on at least 90 %
+    of daylight snapshots in most months. Data coverage and sensor availability for the full
+    2016–2023 record:
+    [`notebooks/01_data_qa.ipynb`](notebooks/01_data_qa.ipynb), section "Data coverage and
+    sensor availability" (figure: `reports/figures/9069_data_coverage.png`).
 - **Open-Meteo**: historical weather, used as a satellite/reanalysis alternative
   to on-site sensors.
 - **US electricity prices**, chosen to match the plant's location and connection type:
@@ -66,3 +75,6 @@ src/               # reusable functions (loading, QA, model, losses, anomalies)
 app/               # Streamlit dashboard
 reports/figures/   # figures used in this README
 ```
+
+## How this project was built
+Developed with AI assistance (Claude Code). I defined the methodology, station selection criteria and decision thresholds, reviewed all changes, and investigated data issues; the AI accelerated implementation.
