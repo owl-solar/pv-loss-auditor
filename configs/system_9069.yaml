@@ -94,3 +94,23 @@ data:
       channels:
         "meter_1_ac_power_(kw)_meter_151040": p_ac_meter1_kw
         "meter_2_ac_power_(kw)_meter_151053": p_ac_meter2_kw
+
+# Full-period coverage map (src/coverage.py): point reads at evenly spaced byte positions.
+coverage:
+  points_per_month: 20
+  random_seed: 9069                    # stratified random offsets, reproducible
+  # Daylight = sun elevation above this; 15 deg keeps samples in daylight even if the
+  # assumed time zone is off by 1 h.
+  min_sun_elevation_deg: 15
+  local_tz_assumed: America/New_York   # daylight classification only; verified later in QA
+  min_gap_days: 1                      # report time gaps longer than this
+  workers: 8                           # parallel HTTP requests
+  out_dir: data/processed/9069_coverage
+  # Bytes per point read: must hold one partial + one complete row (about 2x the longest row).
+  read_bytes: {irradiance: 512, environment: 2048, electrical_ac: 6144, meter: 640}
+  # Regex patterns on raw column names: channels to evaluate in each file.
+  channel_patterns:
+    irradiance: ["poa_irradiance", "ghi_irradiance"]
+    environment: ["back-of-module_temperature"]
+    electrical_ac: ["^inverter_(01|10|30)_ac_power_\\(kw\\)"]
+    meter: ["^meter_[12]_ac_power_\\(kw\\)"]

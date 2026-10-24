@@ -10,6 +10,7 @@ Bucket layout (s3://oedi-data-lake/pvdaq/), as found on inspection:
 import argparse
 import io
 import json
+import threading
 from pathlib import Path
 
 import boto3
@@ -80,6 +81,7 @@ PROBE_BYTES = 8192  # one binary-search read; longest 9069 row is ~1 KB, so it h
 TS_LEN = len("YYYY-MM-DD HH:MM:SS")  # ISO timestamps compare correctly as plain strings
 
 bytes_transferred = 0  # running total in this Python session, for traffic reporting
+_traffic_lock = threading.Lock()  # src/coverage.py reads in parallel threads
 
 
 def _get_range(s3, key, start, end):
@@ -88,7 +90,8 @@ def _get_range(s3, key, start, end):
     if end <= start:
         return b""
     body = s3.get_object(Bucket=BUCKET, Key=key, Range=f"bytes={start}-{end - 1}")["Body"].read()
-    bytes_transferred += len(body)
+    with _traffic_lock:  # "+=" is not atomic across threads
+        bytes_transferred += len(body)
     return body
 
 

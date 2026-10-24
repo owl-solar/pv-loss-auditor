@@ -56,6 +56,10 @@ Candidates and screening: `reports/station_candidates.md`.
   implausible DC/AC 1.88 vs 0.47 at equal 825 kW; strings × modules = 129 200 vs 129 390 modules
   in the module table.
 - 9069 module γ = −0.28 %/°C for the 295 W multi-Si module (typical −0.40…−0.45). Check in Phase 2.
+- 9069 sample period: 2019 skipped (meter gap 2019-04-04 07:00 → 2020-03-26 06:55; irradiance at
+  15-min steps), sample uses Jun + Dec 2020. In 2020 several approved channels are empty
+  (pyranometer 02A, thermocouples 02 s2 / 08 s1, meter 1) and class-A pyranometers report in June
+  only. Channel choice and analysis period depend on a full-period coverage map (pending).
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (ModelChain, temperature and inverter models), **pvanalytics** (data QA, clipping detection), **RdTools** (YoY degradation, SRR soiling), scikit-learn, plotly, Streamlit.
