@@ -50,6 +50,8 @@ In this period, share of daylight snapshots with a valid value (mean; months bel
 - POA reference cells 01 / 04 / 10: 98–99 % (3 / 1 / 1 months); all three ≥ 90 % in 40 of 43 months.
 - Module temperature, thermocouples 01 / 03 / 06 s1 / 10: 96–99 % (3–5 months each, worst:
   tc 03 in 2020-06 at 20 %, tc 01 in 2020-12 at 57 %); ≥ 2 of the 4 are ≥ 90 % in 40 of 43 months.
+  "Valid" here means only "no placeholder": thermocouple 03 turned out implausible for the whole
+  period (45–80 °C at night, up to 1138 °C) and is excluded in the cleaning (section 4).
 - Irradiance file has 5-min steps (15-min from 2018-04 to 2020-03). Gaps > 1 day in the period,
   from the full irradiance download: 2021-12-23 → 12-25 (2.0 d) and 2022-05-20 → 05-23 (2.9 d).
   The second sampling pass of the coverage map missed the second one (point sampling cannot see
@@ -108,10 +110,15 @@ Sum of inverters / meter 2 = 1.022.
   Reference cells and pyranometers differ in spectral and angle-of-incidence response, so check
   cell drift against pyranometer 02B over 2020-07 … 2022-04 (02B is 60–100 % there; 0 % in
   2020-05, 50 % in 2022-05) and document the result in Phase 2.
-- 9069 sample files (Jun + Dec 2020) keep only the 11 channels chosen before the coverage map;
-  several of them are empty in 2020 (pyranometer 02A, thermocouples 02 s2 / 08 s1, meter 1).
-  Channels for the analysis period must be re-selected (reference cells, thermocouples
-  01 / 03 / 06 s1 / 10, meter 2); the cached slices cannot be reused for them.
+- Inverter AC peaks of 839–854 kW (up to 3.5 % above 825 kW) exist outside clear days; not
+  flagged (limit 105 %). Check what they are when analysing clipping in Phase 3.
+
+## Clean dataset of 9069 (Phase 1 done)
+`data/processed/9069/9069_clean_<YYYY-MM>.parquet` (UTC months, 5-min UTC index, values as
+measured + `flag_*` columns; build with `python -m src.clean`), report `reports/9069_qa_report.md`.
+Sensors to use in Phase 2: POA cells 04 / 10; module temperature thermocouples 01 / 06 s1 / 10;
+ambient temperature station 01 (03 / 06 / 10 hold values 20–27 % of daylight); wind only 45 %.
+Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stale).
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (ModelChain, temperature and inverter models), **pvanalytics** (data QA, clipping detection), **RdTools** (YoY degradation, SRR soiling), scikit-learn, plotly, Streamlit.

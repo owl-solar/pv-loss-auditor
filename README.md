@@ -17,14 +17,24 @@ connect to SCADA or a monitoring platform.
   DOI: [10.25984/1846021](https://doi.org/10.25984/1846021).
   Measured plant data: AC power, POA irradiance, module temperature.
   - **Station: 9069 (Simon Solar Farm, Social Circle, GA)**: fixed-tilt ground mount
-    (20° / 180° per metadata, to be verified in QA), 38.7 MWp DC, 40 inverters, 5-min data.
-    Chosen from a shortlist of five stations (`reports/station_candidates.md`).
+    20° / 180° (verified on clear days), 38.7 MWp DC, 40 × 825 kW inverters (33 MW AC),
+    5-min data. Chosen from a shortlist of five stations (`reports/station_candidates.md`).
   - **Analysis period: 2020-05 … 2023-11** (43 months): inverter AC power, the plant meter,
-    three POA reference cells and four module-temperature sensors all report on at least 90 %
-    of daylight snapshots in most months. Data coverage and sensor availability for the full
+    three POA reference cells and three module-temperature sensors report on at least 90 %
+    of daylight steps in most months. Data coverage and sensor availability for the full
     2016–2023 record:
     [`notebooks/01_data_qa.ipynb`](notebooks/01_data_qa.ipynb), section "Data coverage and
     sensor availability" (figure: `reports/figures/9069_data_coverage.png`).
+  - **Data QA findings** (notebook 01, report [`reports/9069_qa_report.md`](reports/9069_qa_report.md)):
+    - the files use different clocks: irradiance and environment switch daylight saving time on
+      EU dates, inverter and meter data on US dates — without a per-file conversion to UTC, power
+      is shifted by 1 h against irradiance for about 3 weeks a year
+      (`reports/figures/9069_clock_offset.png`);
+    - the NREL flag "Wrong mounting config" is not supported: fixed 20°/180° fits measured POA
+      with nRMSE 4.9 %, a single-axis tracker with 36 % (`reports/figures/9069_geometry_check.png`);
+    - the string metadata (272 vs 68 strings per inverter) contradicts equal clear-day energy of
+      all inverters; one thermocouple reports implausible values for the whole period; several
+      inverters have frozen readings — all flagged, nothing deleted.
 - **Open-Meteo**: historical weather, used as a satellite/reanalysis alternative
   to on-site sensors.
 - **US electricity prices**, chosen to match the plant's location and connection type:
@@ -46,7 +56,7 @@ connect to SCADA or a monitoring platform.
 
 ## Project status
 - [x] Phase 0: repo skeleton, environment
-- [ ] Phase 1: data selection and QA
+- [x] Phase 1: data selection and QA
 - [ ] Phase 2: expected yield model and KPIs
 - [ ] Phase 3: loss waterfall MVP (kWh and USD)
 - [ ] Phase 4: degradation and soiling (RdTools); on-site sensor vs Open-Meteo
@@ -61,10 +71,15 @@ py -3.13 -m venv .venv
 python -m pip install --upgrade pip
 pip install -r requirements.txt
 ```
-Download data (script to be added in Phase 1):
+Download the analysis period of PVDAQ system 9069 (public OEDI S3 bucket, no credentials;
+about 1.2 GB, resumes month by month after an interruption), then build the clean dataset:
 ```powershell
-# python -m src.download_data   (placeholder)
+python -m src.pvdaq --config configs/system_9069.yaml --period --dry-run   # size estimate only
+python -m src.pvdaq --config configs/system_9069.yaml --period
+python -m src.clean --config configs/system_9069.yaml                       # -> data/processed/9069/
 ```
+QA, clock, geometry checks and the QA report: `notebooks/01_data_qa.ipynb`
+(report: `reports/9069_qa_report.md`).
 
 ## Repository structure
 ```
