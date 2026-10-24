@@ -88,15 +88,20 @@ and meter on **US dates** (America/New_York). Each file is converted to UTC with
 acceptance test: AC vs reference-cell lag +1.0 h → 0.0 h in every window where the rules differ.
 Inverter heatsink temperatures: clock not established, not used until checked.
 
+## Geometry, ratings and sensors of 9069 (resolved in Phase 1, notebook 01 section 3)
+On 61 clear days (2020-05 … 2022-01): fixed 20°/180° POA nRMSE 4.9 %, MBE +0.9 % vs tracker 36 %;
+NREL "Wrong mounting config" flag not supported. All 40 inverters clip at 825–830 kW → plant AC
+33 000 kW confirmed. Clear-day energy equal across inverters → string metadata (272 vs 68) is wrong.
+Sum of inverters / meter 2 = 1.022.
+
 ## Open questions
 - AC offset 5–10 min earlier than irradiance offset on clear days: interval labelling or AC curve
   shape? Check with clear-day profiles (Phase 1, section 3).
 - Inverter 01 reports 0 kW from late Feb to mid-Apr 2023: downtime candidate for Phase 3.
-- AC rating of 9069 inverters 6–40: 825 kW is given only for inverters 1–5; 40 × 825 = 33 000 kW
-  is assumed to be plant AC. Check via inverter peak power / clipping level.
-- 9069 string mismatch: inverters 1–20 have 272 strings, 21–40 have 68 (× 19 modules), which gives
-  implausible DC/AC 1.88 vs 0.47 at equal 825 kW; strings × modules = 129 200 vs 129 390 modules
-  in the module table.
+- Which POA sensors define PR (Phase 2): cells 04 / 10 agree within 2 %, cell 01 reads 3.5–5.4 %
+  low; pyranometer 02B reads 4.5–6.2 % above cells 04 / 10 and 10.2 % above cell 01 on clear steps.
+- Clear-day AC of inverter 01 sometimes drops to 0 at midday or holds ~0.19 of rating in the
+  evening: downtime / curtailment candidates for Phase 3.
 - 9069 module γ = −0.28 %/°C for the 295 W multi-Si module (typical −0.40…−0.45). Check in Phase 2.
 - 9069 POA after 2022-05: class-A pyranometers are gone (02B: 0 % from 2022-06; 08: 0 % from
   2020-09; GHI pyranometer 12: 0 % from 2022-04), so PR will rely on reference cells 01 / 04 / 10.

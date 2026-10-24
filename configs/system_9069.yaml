@@ -19,13 +19,15 @@ capacity:
   # 40 inverters x 825 kW. 825 kW is given only for inverters 1-5.
   # The summary CSV labels 33 000 as dc_capacity_kW; it matches AC, not DC.
   ac_kw: 33000
-  ac_kw_status: assumed, to be verified in QA
+  ac_kw_status: verified in QA (notebook 01, section 3) - every inverter clips at 825-830 kW
 
 mount:
   type: fixed
   tilt_deg: 20
   azimuth_deg: 180
-  status: metadata value, under test (NREL flag "Wrong mounting config identified")
+  # NREL flag "Wrong mounting config identified" not supported: POA nRMSE 4.9 % fixed vs 36 %
+  # tracker on clear days; best grid point 25/180 (4.6 %), 20/180 kept as metadata value.
+  status: verified in QA (notebook 01, section 3)
   # Alternative geometry used ONLY to test the NREL flag, not for station selection.
   tracker_hypothesis:
     axis_tilt_deg: 0
@@ -33,7 +35,7 @@ mount:
     max_angle_deg: 60
     backtrack: true
     gcr: 0.4
-    status: assumed, to be verified in QA
+    status: rejected in QA (POA nRMSE 34-36 %)
 
 modules:
   # Metadata field is named "nameplate capacity(kW)" but values are clearly W.
@@ -53,12 +55,16 @@ modules:
 inverters:
   count: 40
   # Strings x 19 modules: 20 x 272 + 20 x 68 = 129 200 modules vs 129 390 in the module table.
+  # NOT supported by the data: clear-day energy is equal across inverters (0.88-1.05 of the
+  # median, groups 1-20 / 21-40: 1.005 / 0.981), so DC per inverter is about equal. Kept only as
+  # the metadata record; do not use.
+  string_groups_status: contradicted by QA (notebook 01, section 3)
   string_groups:
     - {ids: "1-20", modules_per_string: 19, strings: 272}
     - {ids: "21-40", modules_per_string: 19, strings: 68}
   ac_kw:
     - {ids: "1-5", ac_kw: 825, status: metadata}
-    - {ids: "6-40", ac_kw: 825, status: "assumed, to be verified in QA"}
+    - {ids: "6-40", ac_kw: 825, status: "verified in QA: clipping level 825-830 kW"}
 
 data:
   timestamp_column: measured_on      # naive "YYYY-MM-DD HH:MM:SS", time zone unknown
@@ -158,3 +164,17 @@ clock:
   unverified_columns: ["^t_hs_inv"]
   reference_channel: poa_ref01_wm2   # irradiance channel used as time reference
   clear_day_min_r: 0.97
+
+# Geometry and sensor checks on clear days (src/geometry.py, notebook 01, section 3).
+geometry_check:
+  ghi_channel: ghi_pyr12_wm2          # clear-sky detection; GHI exists only until 2022-03
+  ghi_until: "2022-03-31"
+  poa_channels: [poa_ref01_wm2, poa_ref04_wm2, poa_ref10_wm2]   # measured POA = their mean
+  compare_channels: [poa_pyr02b_wm2]  # class-A pyranometer, for sensor agreement only
+  clearsky_window_min: 30             # detect_clearsky window for 5-min data (see geometry.py)
+  clear_day_min_fraction: 0.9         # clear day: >= 90 % of daylight steps flagged clear
+  daylight_min_elevation_deg: 10      # daylight for the clear-day fraction
+  fit_min_elevation_deg: 15           # POA fit: skip low sun (AOI and horizon effects)
+  albedo: 0.2
+  grid_tilts_deg: [0, 5, 10, 15, 20, 25, 30, 35, 40]
+  grid_azimuths_deg: [150, 160, 170, 180, 190, 200, 210]

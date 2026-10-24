@@ -90,6 +90,56 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
     return fig
 
 
+def geometry_check_plot(day_poa, grid, ac_profiles, ac_rating_kw, title=""):
+    """Three panels: POA on one clear day, nRMSE over tilt x azimuth, clear-day AC profiles.
+
+    day_poa     : DataFrame on local time of one day; columns 'measured', 'fixed', 'tracker'
+    grid        : DataFrame tilts x azimuths of nRMSE (%), from geometry.orientation_grid
+    ac_profiles : DataFrame, index = local hour (float), columns = days; AC / rating
+    """
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 4.6),
+                                        gridspec_kw={"width_ratios": [1.2, 1, 1.2]})
+    hours = day_poa.index.hour + day_poa.index.minute / 60
+    ax1.plot(hours, day_poa["measured"], color=INK, linewidth=2.2, label="measured (mean of cells)")
+    ax1.plot(hours, day_poa["fixed"], color="#256abf", linewidth=1.4, label="model: fixed 20°/180°")
+    ax1.plot(hours, day_poa["tracker"], color="#d9622b", linewidth=1.4, label="model: 1-axis tracker")
+    ax1.set_xlabel("local time, h", fontsize=9)
+    ax1.set_ylabel("POA, W/m²", fontsize=9)
+    ax1.set_title(f"Clear day {day_poa.index[0]:%Y-%m-%d}", loc="left", fontsize=10, color=INK)
+    ax1.legend(fontsize=8, frameon=False)
+
+    cmap = LinearSegmentedColormap.from_list("blue_seq", BLUE_RAMP[::-1])  # dark = better fit
+    mesh = ax2.pcolormesh(np.arange(len(grid.columns) + 1), np.arange(len(grid.index) + 1),
+                          grid.to_numpy(dtype=float), cmap=cmap, edgecolors="white", linewidth=0.5)
+    for i, tilt in enumerate(grid.index):
+        for j, az in enumerate(grid.columns):
+            v = grid.loc[tilt, az]
+            ax2.text(j + 0.5, i + 0.5, f"{v:.0f}", ha="center", va="center", fontsize=7,
+                     color="white" if v < grid.to_numpy().mean() else INK)
+    ax2.set_xticks(np.arange(len(grid.columns)) + 0.5, grid.columns, fontsize=8)
+    ax2.set_yticks(np.arange(len(grid.index)) + 0.5, grid.index, fontsize=8)
+    ax2.set_xlabel("azimuth, °", fontsize=9)
+    ax2.set_ylabel("tilt, °", fontsize=9)
+    ax2.set_title("POA nRMSE (%) of fixed-tilt models", loc="left", fontsize=10, color=INK)
+    fig.colorbar(mesh, ax=ax2, fraction=0.05, pad=0.02)
+
+    for col in ac_profiles.columns:
+        ax3.plot(ac_profiles.index, ac_profiles[col], color="#6da7ec", linewidth=0.7, alpha=0.6)
+    ax3.plot(ac_profiles.index, ac_profiles.median(axis=1), color=INK, linewidth=2,
+             label="median of clear days")
+    ax3.axhline(1, color="#d9622b", linewidth=1, linestyle="--", label=f"{ac_rating_kw:.0f} kW rating")
+    ax3.set_xlabel("local time, h", fontsize=9)
+    ax3.set_ylabel("AC / inverter rating", fontsize=9)
+    ax3.set_title("Inverter 01 AC on clear days", loc="left", fontsize=10, color=INK)
+    ax3.legend(fontsize=8, frameon=False, loc="center left")
+    for ax in (ax1, ax3):
+        ax.grid(color="#e6e5e1")
+        ax.tick_params(colors=INK, labelsize=8)
+    fig.suptitle(title, x=0.01, ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    return fig
+
+
 def clock_offset_plot(offsets, base, other, windows, title=""):
     """Detected daily clock offset per channel, relative to a base rule, one panel per channel.
 
