@@ -50,8 +50,11 @@ In this period, share of daylight snapshots with a valid value (mean; months bel
 - POA reference cells 01 / 04 / 10: 98–99 % (3 / 1 / 1 months); all three ≥ 90 % in 40 of 43 months.
 - Module temperature, thermocouples 01 / 03 / 06 s1 / 10: 96–99 % (3–5 months each, worst:
   tc 03 in 2020-06 at 20 %, tc 01 in 2020-12 at 57 %); ≥ 2 of the 4 are ≥ 90 % in 40 of 43 months.
-- Irradiance file has 5-min steps (15-min from 2018-04 to 2020-03). Only gap > 1 day in the
-  period: irradiance 2021-12-23 → 2021-12-25. No month with fewer than 3 daylight snapshots.
+- Irradiance file has 5-min steps (15-min from 2018-04 to 2020-03). Gaps > 1 day in the period,
+  from the full irradiance download: 2021-12-23 → 12-25 (2.0 d) and 2022-05-20 → 05-23 (2.9 d).
+  The second sampling pass of the coverage map missed the second one (point sampling cannot see
+  gaps shorter than about 3 days reliably); the other files may hide similar short gaps until
+  they are downloaded. No month with fewer than 3 daylight snapshots.
 
 **Rejected: candidate 2 (2018-04 … 2023-11).** Thermocouples work at only 0–57 % per month
 (typically 11–57 %) in 2018-04 … 2020-04, on all sensors at once (looks like a logger problem);
@@ -71,6 +74,11 @@ skipped only because meter, thermocouple and 5-min irradiance data are missing t
 - Never re-download data that is already cached locally.
 - Prefer column-selective formats (parquet) and byte-range reads.
   (PVDAQ 9069 exists only as wide CSV; byte ranges cut time, not columns.)
+- Confirmed on 2026-10-24: full download of the 9069 analysis period (2020-05 … end of files,
+  4 CSV files, ≈ 1.2 GB; estimate 1 215 MB). The approval covers exactly this volume.
+- Large downloads must resume month by month: save each month to parquet as soon as it is
+  complete, keep a manifest, and on restart continue after the last saved month without
+  re-downloading anything.
 
 ## Open questions
 - Time zone of 9069 timestamps: UTC, fixed EST (UTC−5) or local time with DST? Metadata gives only

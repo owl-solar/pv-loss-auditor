@@ -114,3 +114,33 @@ coverage:
     environment: ["back-of-module_temperature"]
     electrical_ac: ["^inverter_(01|10|30)_ac_power_\\(kw\\)"]
     meter: ["^meter_[12]_ac_power_\\(kw\\)"]
+
+# Full analysis period, downloaded month by month (src/pvdaq.py --period).
+# Each file is read from `start` to its end; every month goes to its own parquet file.
+period:
+  start: "2020-05"            # first month; the end of each file is the end of the period
+  approved_mb: 1250           # user approved ~1.2 GB (estimate 1215 MB); plan aborts above this
+  chunk_mb: 4                 # size of one HTTP range request
+  retries: 5                  # per chunk, with growing pauses (2, 4, 8, ... s)
+  order: [irradiance, meter, environment, electrical_ac]   # biggest file last
+  out_dir: data/raw/pvdaq/9069_period
+  # Channel selection: regex on the raw column name -> project name. Groups in the regex fill
+  # the {0}, {1} placeholders. A rule that matches nothing, or two raw columns that get the same
+  # name, stops the run. Raw values are saved as they are (sentinels like -297 are kept; QA
+  # decides), timestamps stay naive as in the source.
+  rules:
+    irradiance:                # all 14 channels: the file is small and sensor agreement is a QA check
+      - {pattern: '^pyranometer_\(class_a\)_12_ghi_irradiance_\(w/m2\)_o_\d+$', name: "ghi_pyr12_wm2"}
+      - {pattern: '^pyranometer_\(class_a\)_(\w+)_poa_irradiance_\(w/m2\)_o_\d+$', name: "poa_pyr{0}_wm2"}
+      - {pattern: '^reference_cell_(\d{2})_poa_irradiance_\(w/m2\)_o_\d+$', name: "poa_ref{0}_wm2"}
+    meter:                     # total AC power of both meters (meter 1 until 2019, meter 2 since 2020)
+      - {pattern: '^meter_([12])_ac_power_\(kw\)_meter_\d+$', name: "p_ac_meter{0}_kw"}
+    environment:
+      - {pattern: '^thermocouple_(\d{2})_back-of-module_temperature_\(sensor_(\d)\)_\(c\)_o_\d+$', name: "t_mod_tc{0}s{1}_c"}
+      - {pattern: '^weather_station_(\d{2})_ambient_temperature_\(sensor_(\d)\)_\(c\)_o_\d+$', name: "t_amb_ws{0}s{1}_c"}
+      - {pattern: '^wind_sensor_\w+_wind_speed_\(m/s\)_o_\d+$', name: "wind_speed_ms"}
+      - {pattern: '^wind_sensor_\w+_wind_direction_o_\d+$', name: "wind_dir_deg"}
+      # Inverter heatsink temperature: separates clipping from temperature derating (Phase 3)
+      - {pattern: '^inverter_pad_(\d{2})_temperature_heatsink_\(c\)_inv_\d+$', name: "t_hs_inv{0}_c"}
+    electrical_ac:             # AC power of all 40 inverters
+      - {pattern: '^inverter_(\d{2})_ac_power_\(kw\)_inv_\d+$', name: "p_ac_inv{0}_kw"}

@@ -10,13 +10,17 @@ Bucket layout (s3://oedi-data-lake/pvdaq/), as found on inspection:
 import argparse
 import io
 import json
+import os
+import re
 import threading
+import time
 from pathlib import Path
 
 import boto3
 import pandas as pd
 from botocore import UNSIGNED
 from botocore.config import Config
+from botocore.exceptions import BotoCoreError, ClientError
 
 from src.config import load_config
 
@@ -187,13 +191,22 @@ def plan_sample(s3, config):
     return parts
 
 
-def _parse_slice(raw, part, ts_col):
-    """Parse a downloaded CSV slice (whole rows, no header); keep and rename needed columns."""
-    df = pd.read_csv(io.BytesIO(raw), header=None, names=part["columns"],
-                     usecols=[ts_col, *part["channels"]])
+def _parse_rows(raw, columns, channels, ts_col):
+    """Parse CSV rows (bytes, whole rows, no header line).
+
+    columns : all column names of the file, in file order (the slice has no header)
+    channels: {raw column name: project name}, the columns to keep
+    Returns a DataFrame indexed by the (naive) timestamp with the renamed channel columns.
+    """
+    df = pd.read_csv(io.BytesIO(raw), header=None, names=columns, usecols=[ts_col, *channels])
     df[ts_col] = pd.to_datetime(df[ts_col], format="%Y-%m-%d %H:%M:%S")
-    df = df.set_index(ts_col).rename(columns=part["channels"])
-    return df[list(part["channels"].values())]
+    df = df.set_index(ts_col).rename(columns=channels)
+    return df[list(channels.values())]
+
+
+def _parse_slice(raw, part, ts_col):
+    """Parse a downloaded CSV slice of a sample part (see plan_sample)."""
+    return _parse_rows(raw, part["columns"], part["channels"], ts_col)
 
 
 def download_sample(config, dry_run=False, assume_yes=False):
@@ -238,14 +251,309 @@ def download_sample(config, dry_run=False, assume_yes=False):
     return saved
 
 
+# ---------------------------------------------------------------------------
+# Resumable download of a whole period, month by month
+# ---------------------------------------------------------------------------
+# Idea: read the CSV from the start of the period to its end in fixed-size chunks and cut the
+# stream into months by the timestamp at the start of each row. A month is written to its own
+# parquet file as soon as the first row of the NEXT month appears. A manifest (JSON) records the
+# byte range of every saved month, so after an interruption we continue exactly where the last
+# saved month ended, and nothing that is already saved is downloaded again.
+
+MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
+def resolve_channels(columns, rules):
+    """Map raw CSV column names to project names with the regex rules of the config.
+
+    Fails loudly if a rule matches no column or two raw columns get the same project name,
+    so a wrong pattern cannot silently drop or merge channels.
+    """
+    mapping = {}
+    for rule in rules:
+        pattern = re.compile(rule["pattern"])
+        hits = [(c, pattern.match(c)) for c in columns if pattern.match(c)]
+        if not hits:
+            raise ValueError(f"Rule {rule['pattern']!r} matches no column.")
+        for column, match in hits:
+            if column in mapping:
+                raise ValueError(f"Column {column!r} matched by two rules.")
+            mapping[column] = rule["name"].format(*match.groups())
+    names = list(mapping.values())
+    duplicates = sorted({n for n in names if names.count(n) > 1})
+    if duplicates:
+        raise ValueError(f"Several raw columns map to the same name: {duplicates}")
+    return mapping
+
+
+def _write_json_atomic(path, obj):
+    """Write JSON to a temp file, then replace the target: a crash never leaves a half file."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj, indent=1), encoding="utf-8")
+    os.replace(tmp, path)  # atomic on the same drive
+
+
+def _manifest_path(period):
+    return Path(period["out_dir"]) / "manifest.json"
+
+
+def _load_manifest(period):
+    path = _manifest_path(period)
+    if path.exists():
+        return json.loads(path.read_text(encoding="utf-8"))
+    return {"files": {}}
+
+
+def _get_range_retry(s3, key, start, end, retries):
+    """_get_range with retries and growing pauses (mobile connections drop).
+
+    Also treats a short read as an error: S3 must return exactly end - start bytes.
+    """
+    for attempt in range(retries + 1):
+        try:
+            body = _get_range(s3, key, start, end)
+            if len(body) != end - start:
+                raise OSError(f"short read: {len(body)} of {end - start} bytes")
+            return body
+        except (BotoCoreError, ClientError, OSError) as exc:
+            if attempt == retries:
+                raise
+            wait = 2 ** (attempt + 1)
+            print(f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} "
+                  f"in {wait} s", flush=True)
+            time.sleep(wait)
+
+
+def _read_chunks(s3, key, start, size, chunk_bytes, retries):
+    """Yield (offset, block) from byte `start` to the end of the file.
+
+    Every block consists of WHOLE rows only: it starts at the beginning of a row and ends right
+    after a newline. A chunk boundary usually falls in the middle of a row, so the unfinished
+    tail of each chunk (everything after its last newline) is kept in `carry` and put in front
+    of the next chunk. `start` must be the beginning of a row.
+    """
+    carry = b""
+    pos = start  # next byte to download
+    while pos < size:
+        end = min(pos + chunk_bytes, size)
+        chunk = _get_range_retry(s3, key, pos, end, retries)
+        data = carry + chunk
+        data_offset = pos - len(carry)  # file offset of data[0], which is the start of a row
+        pos = end
+        cut = data.rfind(b"\n") + 1  # bytes up to and including the last newline (0 if none)
+        carry = data[cut:]
+        if cut:
+            yield data_offset, data[:cut]
+    if carry:  # last row of a file that does not end with a newline
+        yield pos - len(carry), carry
+
+
+def plan_period(s3, config, files=None):
+    """Prepare the download: per file the start offset, the resume offset and the exact size.
+
+    New file -> binary search for the first row of period.start (a few hundred KB).
+    File in the manifest -> resume right after its last saved month, no search.
+    Returns (plans, manifest); also writes the manifest, so a started plan is never repeated.
+    """
+    period, data = config["period"], config["data"]
+    manifest = _load_manifest(period)
+    start_ts = pd.Period(period["start"], freq="M").start_time.strftime("%Y-%m-%d %H:%M:%S")
+    plans = []
+    for name in files or period["order"]:
+        key = data["files"][name]["key"]
+        header = _cached_header(s3, key, data["header_cache"])
+        size_now = s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
+        if size_now != header["size"]:
+            raise RuntimeError(f"{key}: size on S3 ({size_now}) differs from cached header "
+                               f"({header['size']}); delete {data['header_cache']} and check.")
+        mapping = resolve_channels(header["columns"], period["rules"][name])
+        entry = manifest["files"].get(name)
+        if entry is None:
+            before = bytes_transferred
+            start_offset = find_offset(s3, key, header["data_start"], size_now, start_ts)
+            entry = {"key": key, "size": size_now, "start_month": period["start"],
+                     "start_offset": start_offset, "plan_bytes": bytes_transferred - before,
+                     "traffic_bytes": 0, "channels": mapping, "months": []}
+            manifest["files"][name] = entry
+        elif (entry["size"], entry["channels"], entry["start_month"]) != \
+                (size_now, mapping, period["start"]):
+            raise SystemExit(f"{name}: file size, channels or start month differ from the "
+                             f"manifest. Delete {Path(period['out_dir']) / name} and its entry "
+                             "in the manifest to start this file over.")
+        resume = entry["months"][-1]["end"] if entry["months"] else entry["start_offset"]
+        plans.append({"name": name, "entry": entry, "header": header, "mapping": mapping,
+                      "size": size_now, "resume": resume})
+    _write_json_atomic(_manifest_path(period), manifest)
+    return plans, manifest
+
+
+class _MonthSaver:
+    """Turns the raw rows of one month into a parquet file and records it in the manifest."""
+
+    def __init__(self, label, plan, config, manifest, progress):
+        self.label, self.plan, self.manifest, self.progress = label, plan, manifest, progress
+        self.name, self.entry = plan["name"], plan["entry"]
+        self.ts_col = config["data"]["timestamp_column"]
+        self.out_dir = Path(config["period"]["out_dir"]) / self.name
+        self.manifest_path = _manifest_path(config["period"])
+        self.traffic_mark = bytes_transferred  # traffic already counted for this file
+
+    def save(self, month, lines, start, end, at_eof):
+        df = _parse_rows(b"".join(lines), self.plan["header"]["columns"],
+                         self.plan["mapping"], self.ts_col)
+        # Sanity checks: sorted rows, all inside the month (stop instead of saving bad data).
+        if not df.index.is_monotonic_increasing:
+            raise RuntimeError(f"{self.name} {month}: timestamps not sorted.")
+        if (df.index.to_period("M") != pd.Period(month, freq="M")).any():
+            raise RuntimeError(f"{self.name} {month}: rows outside the month.")
+
+        path = self.out_dir / f"{self.name}_{month}.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        df.to_parquet(tmp)
+        os.replace(tmp, path)  # parquet first, manifest second: a crash in between is harmless
+
+        self.entry["traffic_bytes"] += bytes_transferred - self.traffic_mark
+        self.traffic_mark = bytes_transferred
+        self.entry["months"].append({
+            "month": month, "start": start, "end": end, "rows": len(df),
+            "first_ts": str(df.index.min()), "last_ts": str(df.index.max()),
+            "duplicates": int(df.index.duplicated().sum()), "at_eof": at_eof})
+        _write_json_atomic(self.manifest_path, self.manifest)
+        self._print_progress(month, end - start, end)
+
+    def _print_progress(self, month, month_bytes, end):
+        p = self.progress
+        p["done"] += month_bytes
+        file_total = self.plan["size"] - self.entry["start_offset"]
+        file_done = end - self.entry["start_offset"]
+        speed = (bytes_transferred - p["traffic0"]) / max(time.time() - p["t0"], 1e-9)
+        eta_min = (p["total"] - p["done"]) / max(speed, 1) / 60
+        print(f"{self.label} {self.name:13s} {month}  {month_bytes / 1e6:6.1f} MB | "
+              f"file {file_done / 1e6:6.1f}/{file_total / 1e6:.1f} MB "
+              f"({100 * file_done / file_total:3.0f}%) | "
+              f"total {p['done'] / 1e6:7.1f}/{p['total'] / 1e6:.1f} MB | "
+              f"{speed / 1e6:.2f} MB/s | ETA {eta_min:.0f} min", flush=True)
+
+
+def _download_file(s3, plan, label, config, manifest, progress):
+    """Download one file from its resume offset to the end, saving each month when complete."""
+    period = config["period"]
+    saver = _MonthSaver(label, plan, config, manifest, progress)
+    chunk_bytes = int(period["chunk_mb"] * 1024 * 1024)
+    key = plan["entry"]["key"]
+    cur_month, month_start, lines = None, None, []
+    offset = plan["resume"]  # file offset of the row being looked at
+    for block_offset, block in _read_chunks(s3, key, plan["resume"], plan["size"],
+                                            chunk_bytes, period["retries"]):
+        offset = block_offset
+        for line in block.splitlines(keepends=True):
+            if line.strip():  # skip blank lines
+                month = line[:7].decode("ascii", errors="replace")  # 'YYYY-MM' of the row
+                if not MONTH_RE.match(month):
+                    raise ValueError(f"{key}: unexpected row at byte {offset}: {line[:60]!r}")
+                if month != cur_month:
+                    if cur_month is not None:
+                        if month < cur_month:
+                            raise ValueError(f"{key}: time goes backwards at byte {offset}.")
+                        # First row of the next month: the current month is complete and ends
+                        # exactly here. The next run would resume at this very byte.
+                        saver.save(cur_month, lines, month_start, offset, at_eof=False)
+                        lines = []
+                    cur_month, month_start = month, offset
+                lines.append(line)
+            offset += len(line)
+    if cur_month is not None:  # end of file: the last month ends with the file
+        saver.save(cur_month, lines, month_start, offset, at_eof=True)
+
+
+def period_report(config):
+    """One row per file from the manifest: months, rows, MB, first/last timestamp, gaps."""
+    manifest = _load_manifest(config["period"])
+    rows = []
+    for name, entry in manifest["files"].items():
+        months = entry["months"]
+        if not months:
+            continue
+        first = min(m["first_ts"] for m in months)
+        last = max(m["last_ts"] for m in months)
+        n_rows = sum(m["rows"] for m in months)
+        expected = (pd.Timestamp(last) - pd.Timestamp(first)) / pd.Timedelta(minutes=5) + 1
+        have = pd.PeriodIndex([m["month"] for m in months], freq="M")
+        missing = pd.period_range(have.min(), have.max(), freq="M").difference(have)
+        rows.append({
+            "file": name, "months": len(months), "rows": n_rows,
+            "rows_pct_of_5min": round(100 * n_rows / expected, 1),
+            "duplicates": sum(m["duplicates"] for m in months),
+            "payload_mb": round(sum(m["end"] - m["start"] for m in months) / 1e6, 1),
+            "traffic_mb": round((entry["plan_bytes"] + entry["traffic_bytes"]) / 1e6, 1),
+            "first_ts": first, "last_ts": last,
+            "missing_months": ",".join(str(p) for p in missing)})
+    return pd.DataFrame(rows)
+
+
+def download_period(config, files=None, dry_run=False):
+    """Download the analysis period of the configured files, resuming after the last saved month.
+
+    The exact size is known before the first byte of data is requested (file size minus the
+    start offset). The run stops if it exceeds period.approved_mb.
+    """
+    period = config["period"]
+    s3 = get_s3_client()
+    plans, manifest = plan_period(s3, config, files)
+
+    total = sum(p["size"] - p["entry"]["start_offset"] for p in plans)
+    todo = sum(p["size"] - p["resume"] for p in plans)
+    print(f"{'file':14s} {'period MB':>10s} {'saved MB':>9s} {'to download MB':>15s}  months saved")
+    for p in plans:
+        full = p["size"] - p["entry"]["start_offset"]
+        left = p["size"] - p["resume"]
+        print(f"{p['name']:14s} {full / 1e6:10.1f} {(full - left) / 1e6:9.1f} {left / 1e6:15.1f}  "
+              f"{len(p['entry']['months'])}")
+    print(f"To download: {todo / 1e6:.1f} MB (approved: {period['approved_mb']} MB; "
+          f"headers and search so far: {bytes_transferred / 1e6:.2f} MB)")
+    if todo / 1e6 > period["approved_mb"]:
+        raise SystemExit("Exceeds period.approved_mb. Ask for approval before raising it.")
+    if dry_run or todo == 0:
+        return
+
+    progress = {"total": total, "done": total - todo, "t0": time.time(),
+                "traffic0": bytes_transferred}
+    try:
+        for i, plan in enumerate(plans, 1):
+            if plan["resume"] < plan["size"]:
+                _download_file(s3, plan, f"[{i}/{len(plans)}]", config, manifest, progress)
+    except BaseException:
+        print("Interrupted. Run the same command again: it continues after the last saved "
+              "month, saved months are not downloaded again.", flush=True)
+        raise
+
+    report = period_report(config)
+    print("\nDownload log (cumulative over all runs):")
+    print(report.to_string(index=False))
+    report.to_csv(Path(period["out_dir"]) / "download_log.csv", index=False)
+    print(f"Transferred in this run: {bytes_transferred / 1e6:.1f} MB")
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Download configured PVDAQ months x channels.")
+    parser = argparse.ArgumentParser(description="Download configured PVDAQ data.")
     parser.add_argument("--config", required=True, help="e.g. configs/system_9069.yaml")
+    parser.add_argument("--period", action="store_true",
+                        help="download the whole analysis period, resumable, month by month "
+                             "(default: the small sample of data.sample_months)")
+    parser.add_argument("--files", nargs="+", help="with --period: only these files")
     parser.add_argument("--dry-run", action="store_true",
-                        help="only estimate the size (reads headers and binary-search probes)")
-    parser.add_argument("--yes", action="store_true", help="do not ask for confirmation")
+                        help="only print the size (reads headers and binary-search probes)")
+    parser.add_argument("--yes", action="store_true",
+                        help="sample mode: do not ask for confirmation")
     args = parser.parse_args()
-    download_sample(load_config(args.config), dry_run=args.dry_run, assume_yes=args.yes)
+    config = load_config(args.config)
+    if args.period:
+        download_period(config, files=args.files, dry_run=args.dry_run)
+    else:
+        download_sample(config, dry_run=args.dry_run, assume_yes=args.yes)
 
 
 if __name__ == "__main__":
