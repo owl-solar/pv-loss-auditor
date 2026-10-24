@@ -80,9 +80,18 @@ skipped only because meter, thermocouple and 5-min irradiance data are missing t
   complete, keep a manifest, and on restart continue after the last saved month without
   re-downloading anything.
 
+## Clock of 9069 timestamps (resolved in Phase 1)
+Files use different clocks, all UTC−5 in winter / UTC−4 in summer, found from the daily profile vs
+the sun position (`notebooks/01_data_qa.ipynb`, section 2; `src/timealign.py`; `clock` in the config):
+irradiance and environment switch on **EU dates** (last Sunday of March / October), electrical_ac
+and meter on **US dates** (America/New_York). Each file is converted to UTC with its own rule;
+acceptance test: AC vs reference-cell lag +1.0 h → 0.0 h in every window where the rules differ.
+Inverter heatsink temperatures: clock not established, not used until checked.
+
 ## Open questions
-- Time zone of 9069 timestamps: UTC, fixed EST (UTC−5) or local time with DST? Metadata gives only
-  `timezone_code: 5`. Check in Phase 1 QA (solar noon, DST jumps).
+- AC offset 5–10 min earlier than irradiance offset on clear days: interval labelling or AC curve
+  shape? Check with clear-day profiles (Phase 1, section 3).
+- Inverter 01 reports 0 kW from late Feb to mid-Apr 2023: downtime candidate for Phase 3.
 - AC rating of 9069 inverters 6–40: 825 kW is given only for inverters 1–5; 40 × 825 = 33 000 kW
   is assumed to be plant AC. Check via inverter peak power / clipping level.
 - 9069 string mismatch: inverters 1–20 have 272 strings, 21–40 have 68 (× 19 modules), which gives

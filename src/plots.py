@@ -88,3 +88,39 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
     ax_gap.set_title(title, loc="left", fontsize=11, color=INK)
     fig.tight_layout()
     return fig
+
+
+def clock_offset_plot(offsets, base, other, windows, title=""):
+    """Detected daily clock offset per channel, relative to a base rule, one panel per channel.
+
+    The two candidate rules differ only in a few weeks a year, which are invisible on a plot of
+    the offset itself. Plotting detected - base rule makes them stand out: a channel on the base
+    rule stays at 0 everywhere; a channel on the other rule drops to -1 h in the shaded weeks.
+
+    offsets : {channel label: DataFrame from timealign.daily_clock_offset (clear days only)}
+    base    : (rule label, Series of expected offset per day)
+    other   : (rule label, Series of expected offset per day)
+    windows : [(first day, last day)] where the rules differ - shaded
+    """
+    base_label, base_line = base
+    other_label, other_line = other
+    fig, axes = plt.subplots(len(offsets), 1, figsize=(14, 2.0 * len(offsets)), sharex=True,
+                             squeeze=False)
+    for ax, (label, off) in zip(axes[:, 0], offsets.items()):
+        for a, b in windows:
+            ax.axvspan(a, b + pd.Timedelta(days=1), color="#f3d3c0", linewidth=0, zorder=0)
+        ax.axhline(0, color="#256abf", linewidth=1.2, label=base_label, zorder=1)
+        ax.step(other_line.index, other_line - base_line, where="post", color="#d9622b",
+                linewidth=1.2, label=other_label, zorder=1)
+        resid = off["offset_h"] - base_line.reindex(off.index)
+        ax.scatter(off.index, resid, s=9, color=INK, zorder=3, label="detected, clear days")
+        ax.set_ylim(-1.6, 0.6)
+        ax.set_yticks([-1, 0], ["−1 h", "0"])
+        ax.set_ylabel(label, fontsize=9, color=INK, rotation=0, ha="right", va="center")
+        ax.grid(axis="y", color="#e6e5e1")
+        ax.tick_params(colors=INK, labelsize=9)
+    axes[0, 0].legend(loc="lower left", bbox_to_anchor=(0, 1.0), fontsize=8, frameon=False,
+                      ncol=3)
+    axes[0, 0].set_title(title, loc="left", fontsize=11, color=INK, pad=22)
+    fig.tight_layout()
+    return fig

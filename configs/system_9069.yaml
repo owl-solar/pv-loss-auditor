@@ -9,10 +9,9 @@ system:
   latitude: 33.6762
   longitude: -83.676
   elevation_m: 330.1
-  # Metadata gives only timezone_code: 5. Site is in America/New_York, but whether timestamps are
-  # UTC, fixed EST (UTC-5) or local with DST is unknown.
+  # Metadata gives only timezone_code: 5. Site is in America/New_York. Timestamp clocks differ
+  # per file: see `clock` below.
   timezone: America/New_York
-  timestamp_tz: assumed, to be verified in QA
 
 capacity:
   # Sum over the module table: 25 992 x 295 W + 103 398 x 300 W = 38 687.04 kW.
@@ -144,3 +143,18 @@ period:
       - {pattern: '^inverter_pad_(\d{2})_temperature_heatsink_\(c\)_inv_\d+$', name: "t_hs_inv{0}_c"}
     electrical_ac:             # AC power of all 40 inverters
       - {pattern: '^inverter_(\d{2})_ac_power_\(kw\)_inv_\d+$', name: "p_ac_inv{0}_kw"}
+
+# Clock of each file's naive timestamps (src/timealign.py), found in notebook 01, section 2,
+# from the daily profile vs the sun position (clear days, r > 0.97), not from the time axis.
+# Label - UTC: UTC-5 in winter, UTC-4 in summer, but the switch dates differ per file.
+clock:
+  rules:
+    irradiance: eu_dst_utc-5          # 0 of 315 clear days contradict EU dates; 23 contradict US
+    environment: eu_dst_utc-5         # module temperature has no 1 h jump against irradiance
+    electrical_ac: America/New_York   # +1 h against irradiance in every EU/US window
+    meter: America/New_York           # same as electrical_ac
+  # Inverter heatsink temperatures (environment file) correlate too weakly with irradiance
+  # (r 0.3-0.45) to identify their clock. Not used until checked separately.
+  unverified_columns: ["^t_hs_inv"]
+  reference_channel: poa_ref01_wm2   # irradiance channel used as time reference
+  clear_day_min_r: 0.97
