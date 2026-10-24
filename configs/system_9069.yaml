@@ -1,0 +1,96 @@
+# PVDAQ system 9069 (Simon Solar Farm). Source: 2023-solar-data-prize/9069_OEDI/metadata/
+# 9069_system_metadata.json and csv/systems_20250729.csv, unless stated otherwise.
+# "assumed, to be verified in QA" = not in metadata or inconsistent; do not treat as fact.
+
+system:
+  id: 9069
+  name: Simon Solar Farm
+  location: Social Circle, GA
+  latitude: 33.6762
+  longitude: -83.676
+  elevation_m: 330.1
+  # Metadata gives only timezone_code: 5. Site is in America/New_York, but whether timestamps are
+  # UTC, fixed EST (UTC-5) or local with DST is unknown.
+  timezone: America/New_York
+  timestamp_tz: assumed, to be verified in QA
+
+capacity:
+  # Sum over the module table: 25 992 x 295 W + 103 398 x 300 W = 38 687.04 kW.
+  dc_kw: 38687
+  # 40 inverters x 825 kW. 825 kW is given only for inverters 1-5.
+  # The summary CSV labels 33 000 as dc_capacity_kW; it matches AC, not DC.
+  ac_kw: 33000
+  ac_kw_status: assumed, to be verified in QA
+
+mount:
+  type: fixed
+  tilt_deg: 20
+  azimuth_deg: 180
+  status: metadata value, under test (NREL flag "Wrong mounting config identified")
+  # Alternative geometry used ONLY to test the NREL flag, not for station selection.
+  tracker_hypothesis:
+    axis_tilt_deg: 0
+    axis_azimuth_deg: 180
+    max_angle_deg: 60
+    backtrack: true
+    gcr: 0.4
+    status: assumed, to be verified in QA
+
+modules:
+  # Metadata field is named "nameplate capacity(kW)" but values are clearly W.
+  - type: multi-Si
+    quantity: 25992
+    pnom_w: 295
+    isc_a: 8.48
+    voc_v: 45.9
+    gamma_pmp_pct_per_c: -0.28   # unusual for multi-Si; open question, check in Phase 2
+  - type: multi-Si
+    quantity: 103398
+    pnom_w: 300
+    isc_a: 8.53
+    voc_v: 46.08
+    gamma_pmp_pct_per_c: -0.45
+
+inverters:
+  count: 40
+  # Strings x 19 modules: 20 x 272 + 20 x 68 = 129 200 modules vs 129 390 in the module table.
+  string_groups:
+    - {ids: "1-20", modules_per_string: 19, strings: 272}
+    - {ids: "21-40", modules_per_string: 19, strings: 68}
+  ac_kw:
+    - {ids: "1-5", ac_kw: 825, status: metadata}
+    - {ids: "6-40", ac_kw: 825, status: "assumed, to be verified in QA"}
+
+data:
+  timestamp_column: measured_on      # naive "YYYY-MM-DD HH:MM:SS", time zone unknown
+  # 2019 rejected: meter data gap 2019-04-04 07:00 .. 2020-03-26 06:55, irradiance at 15-min steps.
+  sample_months: ["2020-06", "2020-12"]
+  max_download_mb: 100               # CLAUDE.md: ask before any download above this
+  out_dir: data/raw/pvdaq/9069_sample
+  header_cache: data/raw/pvdaq/9069_sample/headers.json
+  # Wide CSV files (one row per 5-min step, one column per channel).
+  # channels: raw column name in the CSV -> project column name (units in the name).
+  files:
+    irradiance:
+      key: pvdaq/2023-solar-data-prize/9069_OEDI/data/9069_irradiance_data.csv
+      channels:
+        "pyranometer_(class_a)_12_ghi_irradiance_(w/m2)_o_150231": ghi_pyr12_wm2
+        "pyranometer_(class_a)_02a_poa_irradiance_(w/m2)_o_150233": poa_pyr02a_wm2
+        "pyranometer_(class_a)_08_poa_irradiance_(w/m2)_o_150242": poa_pyr08_wm2
+        "reference_cell_02_poa_irradiance_(w/m2)_o_150238": poa_ref02_wm2
+    environment:
+      key: pvdaq/2023-solar-data-prize/9069_OEDI/data/9069_environment_data.csv
+      channels:
+        "thermocouple_02_back-of-module_temperature_(sensor_2)_(c)_o_150257": t_mod_tc02s2_c
+        "thermocouple_08_back-of-module_temperature_(sensor_1)_(c)_o_150266": t_mod_tc08s1_c
+    electrical_ac:
+      key: pvdaq/2023-solar-data-prize/9069_OEDI/data/9069_electrical_ac.csv
+      channels:
+        "inverter_01_ac_power_(kw)_inv_150953": p_ac_inv01_kw
+        "inverter_10_ac_power_(kw)_inv_150962": p_ac_inv10_kw
+        "inverter_30_ac_power_(kw)_inv_150982": p_ac_inv30_kw
+    meter:
+      key: pvdaq/2023-solar-data-prize/9069_OEDI/data/9069_meter_data.csv
+      channels:
+        "meter_1_ac_power_(kw)_meter_151040": p_ac_meter1_kw
+        "meter_2_ac_power_(kw)_meter_151053": p_ac_meter2_kw

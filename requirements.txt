@@ -20,7 +20,10 @@ streamlit==1.66.1
 
 # Data access
 boto3==1.43.118          # anonymous (unsigned) access to the public OEDI S3 bucket
-requests==2.34.2         # Open-Meteo / ENTSO-E HTTP APIs
+requests==2.34.2         # Open-Meteo / price data HTTP APIs
+
+# Config
+pyyaml==6.0.3            # configs/system_<id>.yaml
 
 # Notebooks
 jupyterlab==4.6.4
