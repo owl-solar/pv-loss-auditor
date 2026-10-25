@@ -106,21 +106,18 @@ NREL "Wrong mounting config" flag not supported. All 40 inverters clip at 825–
 Sum of inverters / meter 2 = 1.022.
 
 ## Open questions
-- **Downtime vs data loss (Phase 3, methodological choice, propose options first).** Sum of
-  inverters / meter 2 is 1.00–1.03 until 2022-11 (outages real), 0.97–0.99 in 2022-12 / 2023-01,
-  0.76–0.95 from 2023-02 (0.886 for 2023): part of the 2023 inverter zeros are channels reporting
-  0 while the inverter runs. Inverter-based availability / PR incl. downtime are understated in
-  2023; meter PR (C) 2023 = 0.581 vs 0.514 from inverter channels.
+- **Downtime vs data loss: handled in the Phase 3 waterfall (daily meter reconciliation), but
+  inverter-based availability / PR incl. downtime stay understated in 2023** (KPI tables of
+  Phase 2 not revised): sum of inverters / meter 2 is 1.00–1.03 until 2022-11, 0.76–0.95 from
+  2023-02; which inverter reports false zeros is not recoverable from these files.
 - Inverters fail in pairs (39+40, 23+24, 37+38, 11+12, 17+18, 35+36): shared equipment?
   Plant-wide partial outages in 2020-12 / 2021-01, 2022-05, 2022-10: grid or plant-level?
 - Inverter 01 reports 0 kW from late Feb to mid-Apr 2023 (inverters 01–06 down 2022-12 … 2023-04).
-- Clear-day AC of inverter 01 sometimes drops to 0 at midday or holds ~0.19 of rating in the
-  evening: downtime / curtailment candidates for Phase 3.
-- Inverter AC peaks of 839–854 kW (up to 3.5 % above 825 kW) exist outside clear days; not
-  flagged (limit 105 %). Check what they are when analysing clipping in Phase 3.
-- Running inverters at 0.935 / 0.918 / 0.919 / 0.886 of the model (2020–2023): break down in
-  Phases 3–4; the 2023 step (≈ 3 %) is real, not a sensor effect.
-- PR (C) dips to 0.71–0.73 in November–December: low-sun effects (row shading, AOI)? Phase 3.
+- Running inverters fall short of the model by 7.6–8.7 % of nominal energy (Phase 3): split it
+  into soiling / degradation / AOI and low light / design-loss error / sensor bias in Phase 4;
+  the 2023 step (≈ 3 pp above 400 W/m²) is real, not a sensor effect.
+- PR (C) dips to 0.71–0.73 in November–December: low-sun effects (row shading, AOI)? Phase 4
+  (measured / expected is only 0.71–0.83 below 200 W/m² because PVWatts is linear in irradiance).
 - Cells 04 / 10 vs pyranometer 02B: YoY −0.6 / −1.0 %/yr (10 pairs, not separable from 0), looks
   like a −1.5 % step around 2021-02, not gradual ageing. Not corrected; carry ±1 %/yr as
   uncertainty into the degradation rate (Phase 4).
@@ -144,6 +141,26 @@ parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use
   afternoon 0 min; after temperature correction both within ±2 min); no time shift applied.
   Measured γ −0.34 ± 0.04 %/°C per inverter (flattened by regression dilution), no inverter group
   at −0.28; inverters 29–40 slightly flatter (−0.30 vs −0.35), not conclusive.
+
+## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
+`notebooks/03_loss_waterfall.ipynb`, `src/losses.py`, `tests/test_losses.py` (run without pytest:
+call the `test_*` functions), `losses:` in the config. Decisions (taken with me, options first):
+- Sequential cascade in physical order: nominal (P0·G/1000) → temperature (γ nameplate, T_ref
+  25 °C) → design DC losses → inverter efficiency → clipping (= expected) → downtime → AC unknown
+  → channel credit → running shortfall → meter reconciliation → after inverters (= meter 2).
+  Ends at the meter (revenue basis); closure checked by `check_closure`. Scope: daylight steps
+  with POA, T_cell and meter known (95.7–99.2 % of daylight steps per year).
+- Downtime vs channel loss: a local day with sum(inverters) / (meter × 1.022) < 0.97 is a
+  channel-loss day; the meter surplus is credited back (negative step). It cannot say which
+  inverter lies; 1 pp of the factor 1.022 moves the 2023 credit by ≈ 0.35 GWh.
+- Results 2020-05…2023-11: design 35.9 GWh, downtime net of channel loss 23.4 GWh (0.71 M USD),
+  running shortfall 19.9 GWh (0.60 M USD), after inverters 3.4 GWh; downtime + shortfall = 1.31 M
+  USD (0.91…1.70 M) at 30.19 USD/MWh ±30 %. Downtime: 3 / 3 / 14 / 26 % of nominal 2020–2023;
+  2023 channel loss 4.8 GWh. Clipping ≤ 0.08 % (upper bound); no curtailment plateau (97 % of
+  plateau steps already stale; the "0.19 shelf" is weak light); AC above rating 0.65 MWh, left as
+  measured. Swapping temperature / DC order moves 0.4–0.5 % of nominal.
+- The 6.34 % design DC losses are an assumption (no PVsyst report): 4 / 8 % moves the running
+  shortfall to 24.2 / 16.8 GWh, downtime stays within 0.7 GWh.
 
 ## Clean dataset of 9069 (Phase 1 done)
 `data/processed/9069/9069_clean_<YYYY-MM>.parquet` (UTC months, 5-min UTC index, values as
