@@ -40,3 +40,26 @@ def fetch(source, config, out_dir="data/raw/openmeteo"):
     path.parent.mkdir(parents=True, exist_ok=True)
     data.to_parquet(path)
     return data
+
+
+def poa_from_weather(weather, config, albedo=0.2):
+    """Plane-of-array irradiance (W/m2) of the fixed array from hourly GHI / DNI / DHI.
+
+    Open-Meteo labels an hourly mean at the END of the hour, so the sun position is taken at the
+    middle of that hour (label - 30 min). Perez transposition (pvlib) with the model's own DNI and
+    DHI: no decomposition model is needed. Albedo 0.2 is the same default as geometry.py.
+    """
+    import pvlib
+
+    sysc, mount = config["system"], config["mount"]
+    mid_hour = weather.index - pd.Timedelta(minutes=30)
+    sun = pvlib.solarposition.get_solarposition(mid_hour, sysc["latitude"], sysc["longitude"],
+                                                sysc["elevation_m"])
+    dni_extra = pvlib.irradiance.get_extra_radiation(mid_hour)
+    airmass = pvlib.atmosphere.get_relative_airmass(sun["apparent_zenith"])
+    total = pvlib.irradiance.get_total_irradiance(
+        mount["tilt_deg"], mount["azimuth_deg"], sun["apparent_zenith"].to_numpy(),
+        sun["azimuth"].to_numpy(), weather["direct_normal_irradiance"].to_numpy(),
+        weather["shortwave_radiation"].to_numpy(), weather["diffuse_radiation"].to_numpy(),
+        dni_extra=dni_extra.to_numpy(), airmass=airmass.to_numpy(), albedo=albedo, model="perez")
+    return pd.Series(total["poa_global"], index=weather.index, name="poa_wm2").fillna(0)
