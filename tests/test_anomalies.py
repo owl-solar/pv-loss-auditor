@@ -3,6 +3,8 @@
 import numpy as np
 import pandas as pd
 
+import copy
+
 from src.anomalies import daily_features, deviation_from_own_norm, relative_residual
 from src.config import load_config
 from src.model import expected_power
@@ -83,3 +85,58 @@ def test_daily_features_count_only_valid_steps():
     row = feat.loc[(pd.Timestamp("2021-06-01"), "p_ac_inv03_kw")]
     assert row["n_steps"] == 88                    # NaN steps are not counted
     assert row["frac_below95"] == 1.0              # and do not dilute the share
+
+
+# ---- Isolation Forest part (synthetic data) --------------------------------------------------
+
+def _labelled_rows():
+    dates = pd.date_range("2021-03-01", periods=10, freq="D")
+    index = pd.MultiIndex.from_product([dates, ["p_ac_inv01_kw", "p_ac_inv02_kw"]],
+                                       names=["date", "inverter"])
+    events = pd.DataFrame([{"inverter": "p_ac_inv01_kw", "start": dates[2], "end": dates[5],
+                            "strings": 10, "loss_fraction": 0.06}])
+    return index, events
+
+
+def test_day_labels_and_event_metrics():
+    from src.anomalies import day_labels, evaluate_flags
+    cfg = copy.deepcopy(CONFIG)
+    cfg["anomalies"]["synthetic"]["exclude_plant"] = [{"start": "2021-03-09", "end": "2021-03-09"}]
+    cfg["anomalies"]["synthetic"]["exclude_inverter"] = []
+    index, events = _labelled_rows()
+    labels = day_labels(index, events, cfg)
+    assert (labels == "fault").sum() == 4                       # 4 days x inverter 01
+    assert (labels == "excluded").sum() == 2                    # one plant-wide day x 2 inverters
+    assert (labels == "clean").sum() == 20 - 4 - 2
+
+    flag = pd.Series(False, index=index)
+    flag[(index.get_level_values("date") <= "2021-03-05") & (index.get_level_values("inverter") == "p_ac_inv01_kw")] = True  # days 1-5
+    flag[(index.get_level_values("date") == "2021-03-01") & (index.get_level_values("inverter") == "p_ac_inv02_kw")] = True   # false alarm
+    flag[(index.get_level_values("date") == "2021-03-09")] = True                                                  # excluded: ignored
+    summary, per_event = evaluate_flags(flag, labels, events, cfg)
+    # flagged inside the fault: days 3, 4, 5 of 4 (03-03 .. 03-06) -> 3 true positives
+    assert per_event["n_flagged"].iloc[0] == 3 and per_event["detected"].iloc[0]
+    assert np.isclose(summary["recall_days"], 3 / 4)
+    assert summary["false_alarm_days"] == 3                     # inv01 03-01, 03-02 and inv02 03-01
+    assert np.isclose(summary["precision"], 3 / 6)
+
+
+def test_forest_ranks_an_obvious_outlier_first():
+    from src.anomalies import forest_scores
+    rng = np.random.default_rng(0)
+    x = pd.DataFrame(rng.normal(0, 0.01, size=(500, 4)), columns=["a", "b", "c", "d"])
+    x.iloc[123] = [-0.3, -0.2, 0.5, 0.4]               # one point far from the cloud
+    scores = forest_scores(x, CONFIG)
+    assert scores.idxmax() == 123
+
+
+def test_own_norm_features_removes_static_offsets():
+    from src.anomalies import FEATURES, own_norm_features
+    dates = pd.date_range("2021-01-01", periods=120, freq="D")
+    index = pd.MultiIndex.from_product([dates, ["A", "B"]], names=["date", "inverter"])
+    feat = pd.DataFrame({f: 0.0 for f in FEATURES}, index=index)
+    feat.loc[(slice(None), "A"), "rel_median"] = 0.97     # static offset of inverter A
+    feat.loc[(slice(None), "B"), "rel_median"] = 1.00
+    dev = own_norm_features(feat)
+    assert np.allclose(dev["dev_rel_median"], 0.0)
+    assert list(dev.columns) == ["dev_" + f for f in FEATURES]

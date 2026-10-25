@@ -328,8 +328,18 @@ anomalies:
       - {start: "2022-10-20", end: "2022-10-25", reason: "plant-wide stop, 34 inverters down"}
     # One inverter only: real events found in the daily residuals (cause unknown).
     exclude_inverter:
-      - {inverter: p_ac_inv30_kw, start: "2020-10-24", end: "2020-11-04", reason: "real, about -25 %"}
+      - {inverter: p_ac_inv30_kw, start: "2020-09-22", end: "2020-11-04", reason: "real, two steps: -14 % (09-22), -21 % (10-28), 45 days"}
       - {inverter: p_ac_inv13_kw, start: "2021-11-19", end: "2021-12-15", reason: "real, rel 0.1-0.25"}
       - {inverter: p_ac_inv09_kw, start: "2022-07-29", end: "2022-07-29", reason: "real, rel 0.57"}
       - {inverter: p_ac_inv16_kw, start: "2023-09-21", end: "2023-09-21", reason: "real, rel 0.79"}
       - {inverter: p_ac_inv20_kw, start: "2020-06-18", end: "2020-06-18", reason: "rel 1.39 on 35 steps"}
+
+  # Isolation Forest on daily deviations from each inverter's own norm.
+  forest:
+    n_estimators: 300
+    random_state: 9069
+    # Share of inverter-days flagged. Chosen on the tuning years (max day-level F1), reported on
+    # the later years, so the figures are not tuned on the events they are reported on.
+    contamination_grid: [0.002, 0.005, 0.01, 0.02, 0.03, 0.05]
+    tune_until: "2021-12-31"
+    min_flag_days: 3           # an event counts as detected if >= 3 of its 21 days are flagged

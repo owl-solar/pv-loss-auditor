@@ -76,3 +76,88 @@ def deviation_from_own_norm(daily_rel_median, window_days=61, min_days=20):
     daily = daily_rel_median.asfreq("D")           # regular grid, so 61 rows = 61 days
     norm = daily.rolling(window_days, center=True, min_periods=min_days).median()
     return daily - norm
+
+
+# ---------------------------------------------------------------------------------------------
+# Isolation Forest on the daily features (Phase 5)
+# ---------------------------------------------------------------------------------------------
+
+FEATURES = ["rel_median", "rel_p10", "frac_below95", "rel_spread"]
+
+
+def own_norm_features(feat):
+    """Daily features as deviations from each inverter's own rolling norm.
+
+    feat: output of daily_features (index = date, inverter). Returns a frame with the same index
+    and columns dev_<feature>; rows where the own norm is not defined (too few days) are dropped.
+    """
+    out = {}
+    for name in FEATURES:
+        wide = feat[name].unstack()                       # dates x inverters
+        out["dev_" + name] = deviation_from_own_norm(wide).stack().dropna()   # pandas 3 keeps NaN
+    return pd.DataFrame(out).dropna()
+
+
+def forest_scores(x, config):
+    """Anomaly score per row of x (higher = more unusual); unsupervised, no labels used.
+
+    Isolation Forest isolates a point by random splits; unusual points need fewer splits. Both
+    directions count (a loss and a gain are both unusual). The score is -score_samples of
+    scikit-learn, so that larger = more anomalous.
+    """
+    from sklearn.ensemble import IsolationForest
+    f = config["anomalies"]["forest"]
+    model = IsolationForest(n_estimators=f["n_estimators"], random_state=f["random_state"])
+    model.fit(x)
+    return pd.Series(-model.score_samples(x), index=x.index, name="score")
+
+
+def day_labels(index, events, config):
+    """Label of each (date, inverter) row: 'fault' (inside a synthetic window), 'excluded'
+    (inside a real event excluded from the injection: not clean, not a label) or 'clean'."""
+    from src.synthetic_faults import _blocked_days
+    dates = index.get_level_values("date")
+    inverters = index.get_level_values("inverter")
+    lab = pd.Series("clean", index=index)
+    blocked = _blocked_days(pd.DatetimeIndex(sorted(set(dates))), sorted(set(inverters)), config)
+    # Row-wise lookup of the blocked frame
+    pos_d = blocked.index.get_indexer(dates)
+    pos_i = blocked.columns.get_indexer(inverters)
+    lab[blocked.to_numpy()[pos_d, pos_i]] = "excluded"
+    for e in events.itertuples():
+        hit = (inverters == e.inverter) & (dates >= e.start) & (dates <= e.end)
+        lab[hit] = "fault"
+    return lab
+
+
+def evaluate_flags(flag, labels, events, config, min_flag_days=None):
+    """Day-level and event-level metrics for a boolean flag Series (same index as labels).
+
+    Day level: precision / recall over 'fault' and 'clean' rows ('excluded' rows are ignored).
+    Event level: an event is detected if at least min_flag_days of its days are flagged.
+    Returns (summary dict, per-event DataFrame with n_flagged and detected).
+    """
+    n_min = min_flag_days or config["anomalies"]["forest"]["min_flag_days"]
+    use = labels != "excluded"
+    fault = labels == "fault"
+    tp = int((flag & fault & use).sum())
+    fp = int((flag & ~fault & use).sum())
+    fn = int((~flag & fault & use).sum())
+    dates = labels.index.get_level_values("date")
+    inverters = labels.index.get_level_values("inverter")
+    rows = []
+    for e in events.itertuples():
+        hit = (inverters == e.inverter) & (dates >= e.start) & (dates <= e.end)
+        rows.append({"inverter": e.inverter, "start": e.start, "strings": e.strings,
+                     "n_days": int(hit.sum()), "n_flagged": int((flag & hit).sum())})
+    per_event = pd.DataFrame(rows)
+    per_event["detected"] = per_event["n_flagged"] >= n_min
+    summary = {
+        "precision": tp / (tp + fp) if tp + fp else float("nan"),
+        "recall_days": tp / (tp + fn) if tp + fn else float("nan"),
+        "recall_events": float(per_event["detected"].mean()) if len(per_event) else float("nan"),
+        "false_alarm_days": fp, "clean_days": int((~fault & use).sum()),
+    }
+    p, r = summary["precision"], summary["recall_days"]
+    summary["f1_days"] = 2 * p * r / (p + r) if p + r else 0.0
+    return summary, per_event
