@@ -293,3 +293,15 @@ degradation:
   # Days with less plane-of-array insolation are dropped: the daily ratio is noisy on dark days
   # (short window, low-light and AOI effects dominate). Value to be checked in notebook 04.
   min_daily_poa_kwh_m2: 2.0
+
+# Anomaly detection on residuals (src/anomalies.py, notebook 05). Decisions with the user:
+# relative residual, normalised by the peer median; daily and 5-min feature levels.
+anomalies:
+  # Steps used for residuals: POA above this (low light is noisy and not linear in the model).
+  min_poa_wm2: 200
+  # Steps with expected AC above this share of the rating are skipped (clipping hides losses).
+  max_expected_fraction: 0.9
+  # A peer median needs at least this many running inverters at that step.
+  min_peers: 10
+  # A day-inverter row needs at least this many valid steps (24 x 5 min = 2 h).
+  min_day_steps: 24
