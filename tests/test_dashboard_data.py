@@ -127,3 +127,16 @@ def test_meter_verdict_has_a_gap_between_the_two_readings():
     assert dd.meter_verdict(1.006) == "stops confirmed by the meter"
     assert dd.meter_verdict(0.80) == "partly lost data channels"
     assert dd.meter_verdict(0.967) == "mixed"
+
+
+def test_rolling_median_is_centred_and_needs_min_periods():
+    days = pd.date_range("2021-01-01", periods=9, freq="D")
+    s = pd.Series([1.0, 1.0, 1.0, 9.0, 1.0, 1.0, 1.0, 5.0, 5.0], index=days)
+    out = dd.rolling_median(s, window=5, min_periods=3)
+    assert out.iloc[3] == 1.0                       # the outlier 9 does not move the median of 5 days
+    assert out.iloc[0] == 1.0                       # edge: 3 values (1, 1, 1) satisfy min_periods
+    assert out.iloc[7] == 3.0                       # window cut by the end of the series: [1, 1, 5, 5] -> (1+5)/2
+    gappy = s.copy()
+    gappy.iloc[:3] = float("nan")                   # window of position 1 holds one valid value (9) < 3
+    assert pd.isna(dd.rolling_median(gappy, window=5, min_periods=3).iloc[1])
+

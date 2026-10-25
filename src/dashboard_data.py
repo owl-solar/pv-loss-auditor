@@ -183,3 +183,9 @@ def meter_verdict(ratio_median, agree=0.97, disagree=0.95):
     if ratio_median < disagree:
         return "partly lost data channels"
     return "mixed"
+
+
+def rolling_median(series, window=61, min_periods=20):
+    """Centred rolling median on a regular daily grid (NaN days stay in, so `window` rows = days)."""
+    return series.asfreq("D").rolling(window, center=True, min_periods=min_periods).median()
+
