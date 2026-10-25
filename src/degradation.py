@@ -13,7 +13,7 @@ plane-of-array insolation is high enough for a stable ratio (degradation.min_dai
 import pandas as pd
 
 from src.kpi import _period, inverter_states, kpi_table, step_hours, weighted_t_ref
-from src.model import expected_power, weighted_gamma
+from src.model import expected_power, inverter_dc_kw, weighted_gamma
 
 
 def daily_normalized_energy(inputs, ac, t_cell, config, gamma=None):
@@ -99,4 +99,66 @@ def filter_sensitivity(inputs, ac, t_cell, config, poa_grid, running_grid, end="
                 rd, lo, hi = yoy_rate(part)
                 rows.append({"min_poa": poa_min, "min_running": run_min, "period": label,
                              "days": int(part.notna().sum()), "rd_pct_yr": rd, "ci_low": lo, "ci_high": hi})
+    return pd.DataFrame(rows)
+
+
+def daily_precipitation(weather):
+    """Daily rain (mm) per local day from hourly Open-Meteo data, on the same index as daily_series."""
+    local = weather["precipitation"].copy()
+    local.index = local.index.tz_convert("America/New_York").tz_localize(None)
+    return local.resample("D").sum()
+
+
+def soiling_run(daily, precip=None, precip_threshold=2.0, reps=200, seed=1):
+    """RdTools SRR soiling ratio of normalized energy; returns (ratio, ci_low, ci_high, n_valid, n_all).
+
+    Without precip, cleaning events are inferred from upward jumps of the series ('shift');
+    with precip, a day with rain >= precip_threshold mm also counts as a cleaning
+    ('precip_and_shift'). The ratio is the median soiling ratio over the period, so
+    1 - ratio is the average energy lost to soiling. Random seed fixed: SRR bootstraps.
+    """
+    import numpy as np
+    from rdtools.soiling import soiling_srr
+
+    np.random.seed(seed)
+    kwargs = {}
+    if precip is not None:
+        kwargs = {"precipitation_daily": precip.reindex(daily.index).fillna(0),
+                  "precip_threshold": precip_threshold, "clean_criterion": "precip_and_shift"}
+    ratio, ci, info = soiling_srr(daily["energy_norm"], daily["poa_kwh_m2"].fillna(0),
+                                  reps=reps, **kwargs)
+    table = info["soiling_interval_summary"]
+    return ratio, ci[0], ci[1], int(table["valid"].sum()), len(table)
+
+
+def pr_by_poa_source(inputs, ac, config, external, min_valid=10):
+    """Annual raw PR (variant A, no temperature factor) of running inverters per POA source.
+
+    PR = sum(E_AC) / sum(P0 x H_poa / 1000), same hours and inverters for every source. Hours are
+    the preceding-hour windows used by Open-Meteo; an hour counts only if the plant POA has at
+    least `min_valid` of 12 valid 5-min values. Temperature correction is left out on purpose: the
+    reanalysis gives air, not cell temperature, so the comparison isolates the irradiance source.
+    `external`: dict name -> hourly POA Series (W/m2, UTC, hour-end labels).
+    """
+    poa = inputs["poa_wm2"]
+    _, down = inverter_states(ac, poa, config)
+    up = ac.notna() & ~down & inputs["daylight"].to_numpy()[:, None]
+    n_up = up.sum(axis=1)
+    e_kwh = ac.where(up).sum(axis=1) / 12                  # 5-min steps -> kWh
+
+    hourly = pd.DataFrame({"e_kwh": e_kwh, "n_up": n_up, "plant": poa}).resample(
+        "1h", closed="right", label="right")
+    h = pd.DataFrame({"e_kwh": hourly["e_kwh"].sum(), "n_up": hourly["n_up"].sum() / 12,
+                      "plant": hourly["plant"].mean()})
+    h = h.where(hourly["plant"].count() >= min_valid)
+    p0 = inverter_dc_kw(config)
+    cols = {"plant": h["plant"], **{k: v.reindex(h.index) for k, v in external.items()}}
+    rows = {}
+    for name, series in cols.items():
+        ok = h["e_kwh"].notna() & series.notna() & (h["n_up"] > 0)
+        year = h.index[ok].tz_convert("America/New_York").year
+        energy = h["e_kwh"][ok].groupby(year).sum()
+        # n_up / 12 is the number of inverter-hours (n_up counted per 5-min step)
+        reference = (p0 * series[ok] / 1000 * h["n_up"][ok]).groupby(year).sum()
+        rows[name] = energy / reference
     return pd.DataFrame(rows)
