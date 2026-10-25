@@ -12,6 +12,7 @@ are labelled at the end of the hour; align with the 5-min plant data accordingly
 
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import requests
 
@@ -63,3 +64,38 @@ def poa_from_weather(weather, config, albedo=0.2):
         weather["shortwave_radiation"].to_numpy(), weather["diffuse_radiation"].to_numpy(),
         dni_extra=dni_extra.to_numpy(), airmass=airmass.to_numpy(), albedo=albedo, model="perez")
     return pd.Series(total["poa_global"], index=weather.index, name="poa_wm2").fillna(0)
+
+
+def aoi_loss(weather, config, b0=0.05, albedo=0.2):
+    """Hourly angle-of-incidence (reflection) loss of the fixed array, fraction of POA (0..1).
+
+    ASHRAE IAM = 1 - b0 (1/cos(aoi) - 1) for the beam; sky-diffuse and ground-reflected light use
+    Marion's angle-integrated IAM for the tilt (pvlib.iam.marion_diffuse). Loss = 1 - sum of
+    IAM-weighted components / POA. UPPER BOUND for the audit: the reference cells that feed the
+    model sit under glass and lose to reflection too, only the difference to the modules is
+    missing in measured / model.
+    """
+    import pvlib
+
+    sysc, mount = config["system"], config["mount"]
+    mid_hour = weather.index - pd.Timedelta(minutes=30)
+    sun = pvlib.solarposition.get_solarposition(mid_hour, sysc["latitude"], sysc["longitude"],
+                                                sysc["elevation_m"])
+    zenith, azimuth = sun["apparent_zenith"].to_numpy(), sun["azimuth"].to_numpy()
+    total = pvlib.irradiance.get_total_irradiance(
+        mount["tilt_deg"], mount["azimuth_deg"], zenith, azimuth,
+        weather["direct_normal_irradiance"].to_numpy(), weather["shortwave_radiation"].to_numpy(),
+        weather["diffuse_radiation"].to_numpy(),
+        dni_extra=pvlib.irradiance.get_extra_radiation(mid_hour).to_numpy(),
+        airmass=pvlib.atmosphere.get_relative_airmass(sun["apparent_zenith"]).to_numpy(),
+        albedo=albedo, model="perez")
+    aoi = pvlib.irradiance.aoi(mount["tilt_deg"], mount["azimuth_deg"], zenith, azimuth)
+    iam_beam = pvlib.iam.ashrae(aoi, b=b0)
+    iam_diffuse = pvlib.iam.marion_diffuse("ashrae", mount["tilt_deg"], b=b0)
+    effective = (total["poa_direct"] * iam_beam
+                 + total["poa_sky_diffuse"] * iam_diffuse["sky"]
+                 + total["poa_ground_diffuse"] * iam_diffuse["ground"])
+    poa = np.asarray(total["poa_global"])
+    with np.errstate(divide="ignore", invalid="ignore"):   # night: 0 / 0 -> no loss
+        loss = 1 - np.asarray(effective) / poa
+    return pd.Series(loss, index=weather.index, name="aoi_loss").fillna(0).clip(lower=0)
