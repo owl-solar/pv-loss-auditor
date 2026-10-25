@@ -2,6 +2,7 @@
 
 import numpy as np
 import pandas as pd
+import pytest
 
 import copy
 
@@ -189,3 +190,72 @@ def test_rule_score_uses_the_given_sigma_and_only_the_low_side():
     own = rule_score(x)                                          # sigma from x itself
     sigma = 1.4826 * (x["dev_rel_median"] - x["dev_rel_median"].median()).abs().median()
     assert np.allclose(own.to_numpy(), -x["dev_rel_median"].to_numpy() / sigma)
+
+
+# --- detector comparison (robust_sigma ... flags_in_windows), SYNTHETIC panel -----------------
+
+def _panel(seed=0):
+    """10 inverters x 730 days (2021-2022) of deviations ~ N(0, 0.007); each of 4 events (2 in
+    each year) drops dev_rel_median by 0.15 for 30 days. Returns x, labels, events."""
+    from src.anomalies import FEATURES
+    dates = pd.date_range("2021-01-01", periods=730, freq="D")
+    inv = [f"p_ac_inv{i:02d}_kw" for i in range(1, 11)]
+    index = pd.MultiIndex.from_product([dates, inv], names=["date", "inverter"])
+    rng = np.random.default_rng(seed)
+    x = pd.DataFrame({f"dev_{f}": rng.normal(0, 0.007, len(index)) for f in FEATURES}, index=index)
+    events = pd.DataFrame([
+        {"inverter": inv[i], "start": pd.Timestamp(s), "end": pd.Timestamp(s) + pd.Timedelta(days=29),
+         "strings": 20}
+        for i, s in enumerate(["2021-03-01", "2021-08-01", "2022-03-01", "2022-08-01"])])
+    labels = pd.Series("clean", index=index)
+    d, i = index.get_level_values("date"), index.get_level_values("inverter")
+    for e in events.itertuples():
+        hit = (i == e.inverter) & (d >= e.start) & (d <= e.end)
+        labels[hit] = "fault"
+        x.loc[hit, "dev_rel_median"] -= 0.15
+        x.loc[hit, "dev_frac_below95"] += 0.5
+    return x, labels, events
+
+
+def test_robust_sigma_ignores_rare_outliers():
+    from src.anomalies import robust_sigma
+    d = pd.Series(np.random.default_rng(1).normal(0, 0.01, 2000))
+    clean = robust_sigma(d)
+    d.iloc[:40] = -0.5                                    # 2 % huge outliers
+    assert clean == pytest.approx(0.01, rel=0.1)          # 1.4826 x MAD recovers the std
+    assert robust_sigma(d) == pytest.approx(clean, rel=0.1)
+    assert d.std() > 3 * clean                            # the plain std would explode
+
+
+def test_run_detectors_finds_obvious_faults_and_returns_all_tables():
+    from src.anomalies import (DETECTORS, detection_by_cell, flags_in_windows, robust_sigma,
+                               run_detectors, summary_table)
+    x, labels, events = _panel()
+    sigma = robust_sigma(x["dev_rel_median"])
+    results, split = run_detectors(x, labels, events, CONFIG, sigma, criteria=("far",))
+    assert list(results["far"]) == DETECTORS
+    assert len(split["ev_tune"]) == 2 and len(split["ev_test"]) == 2
+    table = summary_table(results)
+    assert len(table) == 3 and (table["far"] <= CONFIG["anomalies"]["forest"]["far_max"]).all()
+    rule = table.set_index("detector").loc["rule (baseline)"]
+    # -0.15 is 21 sigma: every fault day is found. Precision is not asserted at a fixed level: the
+    # 1 % false-alarm budget allows up to ~36 false days against 60 fault days (precision >= 0.62).
+    assert rule["recall_events"] == 1.0 and rule["recall_days"] == 1.0
+    assert rule["precision"] >= 60 / (60 + CONFIG["anomalies"]["forest"]["far_max"] * rule["clean_days"])
+    cells = detection_by_cell(results)
+    assert set(cells.columns) == {"strings", "duration_days", "detected", "events", "criterion", "detector"}
+    assert cells[cells.detector == "rule (baseline)"][["detected", "events"]].sum().tolist() == [2, 2]
+
+    flags = {n: v[4] for n, v in results["far"].items()}
+    win = flags_in_windows(flags, [("p_ac_inv03_kw", "2022-03-01", "2022-03-30")])
+    assert win.loc[0, "days"] == 30 and win.loc[0, "rule (baseline)"] == 30
+
+
+def test_flags_in_windows_counts_only_the_named_inverter_and_dates():
+    from src.anomalies import flags_in_windows
+    dates = pd.date_range("2021-01-01", periods=10, freq="D")
+    index = pd.MultiIndex.from_product([dates, ["A", "B"]], names=["date", "inverter"])
+    flag = pd.Series(True, index=index)
+    flag[(index.get_level_values("inverter") == "B")] = False
+    out = flags_in_windows({"d": flag}, [("A", "2021-01-03", "2021-01-06"), ("B", "2021-01-03", "2021-01-06")])
+    assert out["days"].tolist() == [4, 4] and out["d"].tolist() == [4, 0]

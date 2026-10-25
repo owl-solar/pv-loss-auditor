@@ -235,3 +235,101 @@ def tune_and_report(score, thresholds, labels, tune, test, events_tune, events_t
     flag = score >= best["threshold"]
     summary_test, per_event = evaluate_flags(flag[test], labels[test], events_test, config)
     return table, best["param"], summary_test, per_event, flag
+
+
+# ---------------------------------------------------------------------------------------------
+# Detector comparison on the daily features (notebook 05, used by the dashboard export)
+# ---------------------------------------------------------------------------------------------
+
+DETECTORS = ["forest, 4 features", "forest, 2 features", "rule (baseline)"]
+
+
+def robust_sigma(d):
+    """1.4826 x MAD: the standard deviation of a normal sample, insensitive to rare large values.
+
+    Compute it on the REAL data (no injected faults), see rule_score.
+    """
+    return 1.4826 * (d - d.median()).abs().median()
+
+
+def detector_scores(x, sigma, config):
+    """Score of every row of x for the three detectors (higher = more anomalous).
+
+    The two forests differ in the features they see (all four deviations, or the two named in
+    anomalies.forest.features_small); the rule uses the sigma of the real data.
+    """
+    small = config["anomalies"]["forest"]["features_small"]
+    return {
+        DETECTORS[0]: forest_scores(x, config),
+        DETECTORS[1]: forest_scores(x[small], config),
+        DETECTORS[2]: rule_score(x, sigma=sigma),
+    }
+
+
+def run_detectors(x, labels, events, config, sigma, criteria=("far", "f1")):
+    """Tune every detector on the early years and report on the later years, per criterion.
+
+    Returns (results, split): results[criterion][detector] = the tuple of tune_and_report
+    (tuning table, chosen parameter, test summary, per-event test table, flag Series);
+    split = dict with the relabelled labels `lab` and the event tables `ev_tune`, `ev_test`.
+    """
+    fo = config["anomalies"]["forest"]
+    tune, test, ev_tune, ev_test, lab = split_by_year(x.index, events, labels, fo["tune_until"])
+    scores = detector_scores(x, sigma, config)
+    results = {}
+    for criterion in criteria:
+        results[criterion] = {}
+        for name, score in scores.items():
+            if name.startswith("forest"):
+                thresholds = {c: score.quantile(1 - c) for c in fo["contamination_grid"]}
+            else:
+                thresholds = {k: float(k) for k in config["anomalies"]["rule"]["k_grid"]}
+            results[criterion][name] = tune_and_report(
+                score, thresholds, lab, tune, test, ev_tune, ev_test, config,
+                criterion=criterion, far_max=fo["far_max"])
+    return results, {"lab": lab, "ev_tune": ev_tune, "ev_test": ev_test}
+
+
+def summary_table(results):
+    """Test-year summary, one row per (criterion, detector): the chosen parameter, precision,
+    recall (days, events), false-alarm days and rate, and the median day of the first flag."""
+    rows = []
+    for criterion, by_detector in results.items():
+        for name, (_, best, s_te, per, _) in by_detector.items():
+            rows.append({
+                "criterion": criterion, "detector": name, "chosen": best,
+                "precision": s_te["precision"], "recall_days": s_te["recall_days"],
+                "recall_events": s_te["recall_events"], "false_alarm_days": s_te["false_alarm_days"],
+                "clean_days": s_te["clean_days"], "far": s_te["false_alarm_days"] / s_te["clean_days"],
+                "median_first_flag_day": per[per.detected].first_flag_day.median()})
+    return pd.DataFrame(rows)
+
+
+def detection_by_cell(results):
+    """Detected events per (criterion, detector, lost strings, fault duration) on the test years."""
+    parts = []
+    for criterion, by_detector in results.items():
+        for name, (_, _, _, per, _) in by_detector.items():
+            g = per.groupby(["strings", "duration_days"]).detected.agg(["sum", "size"])
+            g = g.rename(columns={"sum": "detected", "size": "events"}).astype(int).reset_index()
+            parts.append(g.assign(criterion=criterion, detector=name))
+    return pd.concat(parts, ignore_index=True)
+
+
+def flags_in_windows(flags, windows):
+    """Flagged days of each detector inside given (inverter, start, end) windows (REAL events).
+
+    flags: {detector: boolean Series on the (date, inverter) index}. One row per window with the
+    number of rows (days) of x inside it and one column per detector.
+    """
+    rows = []
+    for inverter, start, end in windows:
+        row = {"inverter": inverter, "start": pd.Timestamp(start), "end": pd.Timestamp(end)}
+        for name, flag in flags.items():
+            dates = flag.index.get_level_values("date")
+            inside = ((flag.index.get_level_values("inverter") == inverter)
+                      & (dates >= start) & (dates <= end))
+            row["days"] = int(inside.sum())
+            row[name] = int(flag[inside].sum())
+        rows.append(row)
+    return pd.DataFrame(rows)
