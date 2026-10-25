@@ -104,3 +104,26 @@ def test_monthly_cause_share_is_percent_of_nominal():
     # 2020-05: downtime group = 1000 + 1000 - 1000 = 1000 kWh of 100 000 nominal = 1 %
     assert share.loc["2020-05", "Downtime"] == pytest.approx(1.0)
     assert share.loc["2020-06", "Downtime"] == pytest.approx(5.0)
+
+
+def test_failure_groups_join_pairs_into_components():
+    pairs = pd.DataFrame({
+        "a": ["p_ac_inv17_kw", "p_ac_inv12_kw", "p_ac_inv35_kw", "p_ac_inv05_kw"],
+        "b": ["p_ac_inv18_kw", "p_ac_inv17_kw", "p_ac_inv36_kw", "p_ac_inv06_kw"],
+        "jaccard": [1.0, 0.97, 0.99, 0.90]})                  # 05+06 is below the 0.95 cut
+    days = pd.date_range("2022-01-01", periods=4, freq="D")
+    cols = ["p_ac_inv12_kw", "p_ac_inv17_kw", "p_ac_inv18_kw", "p_ac_inv35_kw", "p_ac_inv36_kw"]
+    down = pd.DataFrame(0.0, index=days, columns=cols)
+    down.loc[days[:3], ["p_ac_inv12_kw", "p_ac_inv17_kw", "p_ac_inv18_kw"]] = 1.0   # 3 days together
+    down.loc[days[0], ["p_ac_inv35_kw", "p_ac_inv36_kw"]] = 1.0
+    g = dd.failure_groups(pairs, down)
+    assert g["group"].tolist() == ["12+17+18", "35+36"]
+    assert g["inverters"].tolist() == [3, 2]
+    assert g["min_jaccard"].tolist() == [0.97, 0.99]
+    assert g["days_all_down"].tolist() == [3, 1]
+
+
+def test_meter_verdict_has_a_gap_between_the_two_readings():
+    assert dd.meter_verdict(1.006) == "stops confirmed by the meter"
+    assert dd.meter_verdict(0.80) == "partly lost data channels"
+    assert dd.meter_verdict(0.967) == "mixed"

@@ -132,3 +132,54 @@ def monthly_cause_share(monthly):
     """Loss causes per month as % of that month's nominal energy (the groups of losses.CAUSES)."""
     c = by_cause(monthly).rename(columns=CAUSE_NAMES)
     return c.div(monthly["nominal_kwh"], axis=0) * 100
+
+
+def inverter_number(column):
+    """'p_ac_inv17_kw' -> '17'."""
+    return column.split("inv")[1][:2]
+
+
+def failure_groups(pairs, down_days, min_jaccard=0.95):
+    """Inverters that fail together: connected groups of pairs with Jaccard >= min_jaccard.
+
+    pairs: exported `down_pairs` (a, b, jaccard); down_days: exported frame (dates x inverters,
+    1.0 = down, 0.0 = up, NaN = unknown). One row per group with its members ("11+12+17+18"),
+    the weakest Jaccard among its pairs and the days on which ALL members were down.
+    The cause (shared transformer skid, feeder) is not in the data: a hypothesis only.
+    """
+    strong = pairs[pairs["jaccard"] >= min_jaccard]
+    parent = {}
+
+    def find(i):
+        parent.setdefault(i, i)
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for a, b in zip(strong["a"], strong["b"]):
+        parent[find(a)] = find(b)
+    members = {}
+    for inverter in parent:
+        members.setdefault(find(inverter), []).append(inverter)
+    rows = []
+    for group in members.values():
+        group = sorted(group)
+        inside = strong[strong["a"].isin(group) & strong["b"].isin(group)]
+        rows.append({"group": "+".join(inverter_number(c) for c in group), "inverters": len(group),
+                     "min_jaccard": inside["jaccard"].min(),
+                     "days_all_down": int((down_days[group] == 1).all(axis=1).sum())})
+    return pd.DataFrame(rows).sort_values("group").reset_index(drop=True)
+
+
+def meter_verdict(ratio_median, agree=0.97, disagree=0.95):
+    """What the plant meter says about an outage episode, from the median of the daily
+    sum(inverters) / (meter x 1.022): >= agree the stops are real (the meter sees them too),
+    < disagree part of the zeros are lost data channels, in between mixed. Thresholds are mine:
+    0.97 is 1 - channel_tolerance of the config, 0.95 leaves a gap so that borderline episodes
+    are not forced into one of the two readings."""
+    if ratio_median >= agree:
+        return "stops confirmed by the meter"
+    if ratio_median < disagree:
+        return "partly lost data channels"
+    return "mixed"
