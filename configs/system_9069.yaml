@@ -285,3 +285,11 @@ price:
   # higher because of gas prices); (2) the utility's avoided cost, not the plant's PPA price,
   # which is unknown. The ranking of loss causes in kWh does not depend on the price.
   # Repowering Planner (project 2) can use the whole 2026-2045 curve from the same file.
+
+# Degradation and soiling with RdTools (src/degradation.py, notebook 04).
+degradation:
+  # A day needs at least this share of its usable inverter-steps running (not down).
+  min_running_share: 0.5
+  # Days with less plane-of-array insolation are dropped: the daily ratio is noisy on dark days
+  # (short window, low-light and AOI effects dominate). Value to be checked in notebook 04.
+  min_daily_poa_kwh_m2: 2.0
