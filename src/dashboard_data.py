@@ -189,3 +189,19 @@ def rolling_median(series, window=61, min_periods=20):
     """Centred rolling median on a regular daily grid (NaN days stay in, so `window` rows = days)."""
     return series.asfreq("D").rolling(window, center=True, min_periods=min_periods).median()
 
+
+
+def detection_rate(by_cell, criterion="far", duration=None):
+    """Share of events detected per (lost strings, detector) on the test years.
+
+    by_cell: exported `anomaly_by_cell` (strings, duration_days, detected, events, criterion,
+    detector). duration = None pools the fault durations. Returns two frames with strings as
+    rows and detectors as columns: the rate, and the number of events behind it (small counts:
+    1-7 events per cell, so a rate of 0.5 is 'one of two' and not a measurement).
+    """
+    t = by_cell[by_cell["criterion"] == criterion]
+    if duration is not None:
+        t = t[t["duration_days"] == duration]
+    g = t.groupby(["strings", "detector"])[["detected", "events"]].sum()
+    rate = (g["detected"] / g["events"]).unstack("detector")
+    return rate, g["events"].unstack("detector")

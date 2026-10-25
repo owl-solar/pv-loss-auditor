@@ -95,11 +95,14 @@ fig = go.Figure(go.Bar(
     y=sv["cleaning_info"], x=sv["loss_pct"], orientation="h", marker_color=[GRAY if n else BLUE for n in no_rain],
     marker_line=dict(color=common.SURFACE, width=2),
     error_x=dict(type="data", symmetric=False, array=sv["err_plus"], arrayminus=sv["err_minus"], color=common.INK_SECONDARY),
-    text=[f"{v:.1f} %  ({int(a)} of {int(b)} intervals valid)" for v, a, b in zip(sv["loss_pct"], sv["valid"], sv["intervals"])],
-    textposition="outside", cliponaxis=False,
     hovertemplate="%{y}: %{x:.2f} %<extra></extra>"))
+# Labels in their own column to the right of the bars and error bars (outside labels ran into the whiskers).
+fig.add_scatter(x=[3.3] * len(sv), y=sv["cleaning_info"], mode="text", showlegend=False, hoverinfo="skip",
+                text=[f"{v:.1f} %  ({int(a)} of {int(b)} intervals valid)"
+                      for v, a, b in zip(sv["loss_pct"], sv["valid"], sv["intervals"])],
+                textposition="middle right", textfont=dict(color=common.INK))
 fig.update_yaxes(autorange="reversed", title=None)
-fig.update_xaxes(title="average energy lost to soiling, %", range=[0, 4.8])
+fig.update_xaxes(title="average energy lost to soiling, %", range=[0, 5.6])
 st.plotly_chart(common.style(fig, "Soiling loss by the cleaning information RdTools gets", height=320), width="stretch")
 rain_rows = sv[sv["cleaning_info"].str.startswith("rain >= ") & sv["cleaning_info"].str.contains(r"^rain >= (?:1|2|5) mm")]
 rain_days = (daily["rain_mm"] >= 2).groupby(daily.index.year).sum()

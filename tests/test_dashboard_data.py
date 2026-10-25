@@ -140,3 +140,16 @@ def test_rolling_median_is_centred_and_needs_min_periods():
     gappy.iloc[:3] = float("nan")                   # window of position 1 holds one valid value (9) < 3
     assert pd.isna(dd.rolling_median(gappy, window=5, min_periods=3).iloc[1])
 
+
+
+def test_detection_rate_pools_durations_and_keeps_the_event_counts():
+    by_cell = pd.DataFrame({
+        "strings": [5, 5, 5, 5], "duration_days": [21, 60, 21, 60],
+        "detected": [0, 2, 1, 1], "events": [2, 2, 2, 2],
+        "criterion": ["far"] * 4, "detector": ["rule", "rule", "forest", "forest"]})
+    rate, n = dd.detection_rate(by_cell)
+    assert rate.loc[5, "rule"] == 0.5 and rate.loc[5, "forest"] == 0.5     # 2 of 4 and 2 of 4
+    assert n.loc[5, "rule"] == 4
+    rate60, n60 = dd.detection_rate(by_cell, duration=60)
+    assert rate60.loc[5, "rule"] == 1.0 and rate60.loc[5, "forest"] == 0.5 and n60.loc[5, "rule"] == 2
+    assert dd.detection_rate(by_cell, criterion="f1")[0].empty             # no rows for another criterion
