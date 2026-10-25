@@ -16,7 +16,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from src import kpi, losses, outages, prices
+from src import degradation as dg
+from src import kpi, losses, openmeteo as om, outages, prices
 from src.config import load_config
 from src.model import cell_temperature, load_inputs, weighted_gamma
 
@@ -75,6 +76,38 @@ def outage_tables(inputs, ac, config):
     }
 
 
+def degradation_tables(inputs, ac, t_cell, config):
+    """Phase 4: daily series for RdTools, YoY rates, soiling, external weather, shortfall split.
+
+    Same calls as notebooks/04_degradation_soiling.ipynb (computations live in src/degradation.py);
+    the Open-Meteo files must be cached in data/raw/openmeteo/ (no download if they are).
+    """
+    daily = dg.daily_series(inputs, ac, t_cell, config)
+    era5, ifs = om.fetch("era5", config), om.fetch("ifs", config)
+    rain = dg.daily_precipitation(era5)
+    out = {"daily_series": daily.join(rain.rename("rain_mm")).rename_axis("date")}
+    out["degradation_yoy"] = dg.yoy_table(daily)
+    # The rate before 2023 depends on the day filters (my assumptions): keep the whole grid.
+    out["degradation_filters"] = dg.filter_sensitivity(inputs, ac, t_cell, config, [1, 2, 3, 4], [0.25, 0.5, 0.8])
+    soil = dg.soiling_table(daily, rain)
+    out["soiling"] = soil
+
+    ext = {"era5": om.poa_from_weather(era5, config), "ifs": om.poa_from_weather(ifs, config)}
+    stats, ratio = dg.external_poa_comparison(dg.hourly_plant_poa(inputs["poa_wm2"]), ext)
+    out["external_poa_stats"] = stats
+    ratio = ratio["2020-05-01":]                         # the first month starts on 30 April local
+    ratio.index = ratio.index.strftime("%Y-%m")
+    out["external_poa_ratio"] = ratio.rename_axis("month")
+    out["pr_by_poa_source"] = dg.pr_by_poa_source(inputs, ac, config, ext).rename_axis("year")
+
+    aoi = {b0: dg.weighted_loss_pct(ext["era5"], om.aoi_loss(era5, config, b0=b0)) for b0 in (0.03, 0.05, 0.07)}
+    out["aoi_by_b0"] = pd.DataFrame({"b0": list(aoi), "aoi_loss_pct": list(aoi.values())})
+    is_main = (soil.cleaning_info == "rain >= 2 mm + jumps") & (soil.period == "full")
+    out["shortfall_split"] = dg.shortfall_split(daily, float(soil.loc[is_main, "loss_pct"].iloc[0]),
+                                                aoi[0.05]).rename_axis("year")
+    return out
+
+
 def meta(config, t_ref):
     """Scalars the app shows next to the numbers: price assumption, period, T_ref."""
     base, low, high = prices.price_usd_per_mwh(config)
@@ -114,6 +147,7 @@ def main():
     kpis, t_ref = kpi_tables(inputs, ac, t_cell, config, gamma)
     tables.update(kpis)
     tables.update(outage_tables(inputs, ac, config))
+    tables.update(degradation_tables(inputs, ac, t_cell, config))
 
     out = Path(args.out)
     sizes = write_tables(tables, out)
