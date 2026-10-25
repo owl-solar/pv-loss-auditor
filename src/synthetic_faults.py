@@ -27,7 +27,7 @@ def _blocked_days(index, inverters, config):
     return blocked
 
 
-def eligible_starts(valid_days, config):
+def eligible_starts(valid_days, config, window_days):
     """True where a fault window may start (rows: local dates, columns: inverters).
 
     valid_days: boolean frame, True = the inverter has a daily feature on that day. A start is
@@ -35,7 +35,7 @@ def eligible_starts(valid_days, config):
     or within buffer_days of it.
     """
     s = config["anomalies"]["synthetic"]
-    w, b = s["window_days"], s["buffer_days"]
+    w, b = window_days, s["buffer_days"]
     valid = valid_days.asfreq("D").fillna(False).astype(float)
     # Mean of validity over [t, t + w - 1]: a trailing rolling mean, shifted back to the start day.
     share = valid.rolling(w, min_periods=w).mean().shift(-(w - 1))
@@ -46,35 +46,35 @@ def eligible_starts(valid_days, config):
 
 
 def plan_faults(valid_days, config):
-    """Random fault events: DataFrame inverter, start, end, strings, loss_fraction, is_synthetic.
+    """Random fault events: inverter, start, end, duration_days, strings, loss_fraction, is_synthetic.
 
-    Per level, events_per_level windows are drawn from the eligible starts with a fixed seed.
-    Two windows of the same inverter never overlap (nor touch).
+    For every duration and every level, events_per_level windows are drawn from the eligible
+    starts with a fixed seed. Two windows of the same inverter never overlap (nor touch).
     """
     s = config["anomalies"]["synthetic"]
     rng = np.random.default_rng(s["seed"])
-    ok = eligible_starts(valid_days, config)
-    dates, cols = ok.index, list(ok.columns)
-    cand = np.argwhere(ok.to_numpy())                  # (row, col) of every eligible start
-    w = s["window_days"]
-    taken = {c: [] for c in cols}                      # accepted (first, last) row per inverter
+    taken = {c: [] for c in valid_days.columns}        # accepted (first, last) row per inverter
     rows = []
-    for k in s["levels_strings"]:
-        n_done = 0
-        for i in rng.permutation(len(cand)):
-            r, c = cand[i]
-            name = cols[c]
-            if any(r <= last + 1 and r + w - 1 >= first - 1 for first, last in taken[name]):
-                continue
-            taken[name].append((r, r + w - 1))
-            rows.append({"inverter": name, "start": dates[r], "end": dates[r + w - 1],
-                         "strings": k, "loss_fraction": k / s["strings_per_inverter"],
-                         "is_synthetic": True})
-            n_done += 1
-            if n_done == s["events_per_level"]:
-                break
-        if n_done < s["events_per_level"]:
-            raise ValueError(f"only {n_done} windows found for {k} strings: relax the config")
+    for w in s["durations_days"]:
+        ok = eligible_starts(valid_days, config, w)
+        dates, cols = ok.index, list(ok.columns)
+        cand = np.argwhere(ok.to_numpy())              # (row, col) of every eligible start
+        for k in s["levels_strings"]:
+            n_done = 0
+            for i in rng.permutation(len(cand)):
+                r, c = cand[i]
+                name = cols[c]
+                if any(r <= last + 1 and r + w - 1 >= first - 1 for first, last in taken[name]):
+                    continue
+                taken[name].append((r, r + w - 1))
+                rows.append({"inverter": name, "start": dates[r], "end": dates[r + w - 1],
+                             "duration_days": w, "strings": k,
+                             "loss_fraction": k / s["strings_per_inverter"], "is_synthetic": True})
+                n_done += 1
+                if n_done == s["events_per_level"]:
+                    break
+            if n_done < s["events_per_level"]:
+                raise ValueError(f"only {n_done} windows of {w} days for {k} strings: relax config")
     return pd.DataFrame(rows)
 
 

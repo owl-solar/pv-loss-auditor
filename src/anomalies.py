@@ -85,8 +85,10 @@ def deviation_from_own_norm(daily_rel_median, window_days=61, min_days=20):
 FEATURES = ["rel_median", "rel_p10", "frac_below95", "rel_spread"]
 
 
-def own_norm_features(feat):
+def own_norm_features(feat, config):
     """Daily features as deviations from each inverter's own rolling norm.
+
+    The norm window comes from the config (anomalies.norm_window_days).
 
     feat: output of daily_features (index = date, inverter). Returns a frame with the same index
     and columns dev_<feature>; rows where the own norm is not defined (too few days) are dropped.
@@ -94,7 +96,9 @@ def own_norm_features(feat):
     out = {}
     for name in FEATURES:
         wide = feat[name].unstack()                       # dates x inverters
-        out["dev_" + name] = deviation_from_own_norm(wide).stack().dropna()   # pandas 3 keeps NaN
+        dev = deviation_from_own_norm(wide, config["anomalies"]["norm_window_days"],
+                                      config["anomalies"]["norm_min_days"])
+        out["dev_" + name] = dev.stack().dropna()                              # pandas 3 keeps NaN
     return pd.DataFrame(out).dropna()
 
 
@@ -135,7 +139,7 @@ def evaluate_flags(flag, labels, events, config, min_flag_days=None):
 
     Day level: precision / recall over 'fault' and 'clean' rows ('excluded' rows are ignored).
     Event level: an event is detected if at least min_flag_days of its days are flagged.
-    Returns (summary dict, per-event DataFrame with n_flagged and detected).
+    Returns (summary dict, per-event DataFrame with n_flagged, first_flag_day and detected).
     """
     n_min = min_flag_days or config["anomalies"]["forest"]["min_flag_days"]
     use = labels != "excluded"
@@ -148,8 +152,12 @@ def evaluate_flags(flag, labels, events, config, min_flag_days=None):
     rows = []
     for e in events.itertuples():
         hit = (inverters == e.inverter) & (dates >= e.start) & (dates <= e.end)
+        flagged_dates = dates[(flag & hit).to_numpy()]
+        first = (flagged_dates.min() - e.start).days if len(flagged_dates) else np.nan
         rows.append({"inverter": e.inverter, "start": e.start, "strings": e.strings,
-                     "n_days": int(hit.sum()), "n_flagged": int((flag & hit).sum())})
+                     "duration_days": (e.end - e.start).days + 1,
+                     "n_days": int(hit.sum()), "n_flagged": int((flag & hit).sum()),
+                     "first_flag_day": first})   # days from the fault start to the first flag
     per_event = pd.DataFrame(rows)
     per_event["detected"] = per_event["n_flagged"] >= n_min
     summary = {
@@ -161,3 +169,69 @@ def evaluate_flags(flag, labels, events, config, min_flag_days=None):
     p, r = summary["precision"], summary["recall_days"]
     summary["f1_days"] = 2 * p * r / (p + r) if p + r else 0.0
     return summary, per_event
+
+
+def rule_score(x, sigma=None):
+    """Baseline without ML: how many robust sigmas dev_rel_median lies BELOW zero (higher = worse).
+
+    sigma = 1.4826 x MAD of dev_rel_median. Pass the sigma of the REAL data (no injected faults):
+    when 16 % of the rows carry synthetic faults, the MAD of the injected table is inflated
+    (0.0094 instead of 0.0068 here) and every threshold in sigmas silently becomes stricter.
+    Without the argument the sigma of `x` itself is used. Labels are never used. A loss of
+    strings lowers the median of rel, so only the low side counts; a rise is not flagged.
+    """
+    d = x["dev_rel_median"]
+    if sigma is None:
+        sigma = 1.4826 * (d - d.median()).abs().median()
+    return (-d / sigma).rename("score")
+
+
+def split_by_year(index, events, labels, tune_until):
+    """Masks for tuning (date <= tune_until) and test rows; events by where they lie entirely.
+
+    Events that straddle tune_until belong to neither set and their fault days are relabelled
+    'excluded', so neither the tuning nor the report sees half an event.
+    Returns (tune_mask, test_mask, events_tune, events_test, labels_clean_split).
+    """
+    cut = pd.Timestamp(tune_until)
+    dates = index.get_level_values("date")
+    events_tune = events[events["end"] <= cut]
+    events_test = events[events["start"] > cut]
+    straddle = events[(events["start"] <= cut) & (events["end"] > cut)]
+    lab = labels.copy()
+    inverters = index.get_level_values("inverter")
+    for e in straddle.itertuples():
+        lab[(inverters == e.inverter) & (dates >= e.start) & (dates <= e.end)] = "excluded"
+    return dates <= cut, dates > cut, events_tune, events_test, lab
+
+
+def tune_and_report(score, thresholds, labels, tune, test, events_tune, events_test, config,
+                    criterion="f1", far_max=0.01):
+    """Pick a threshold on the tuning rows, report on the test rows.
+
+    thresholds: {parameter value: score threshold} (for the forest the parameter is the
+    contamination and the threshold its score quantile; for the rule k and k itself).
+    criterion:
+      "f1"  best day-level F1 (rewards recall of long faults; precision depends on how many
+            faults were injected, which is not the real fault rate);
+      "far" false-alarm budget: among thresholds with false_alarm_days / clean_days <= far_max
+            take the best day-level recall; if none fits, the strictest threshold.
+    Returns (tuning table, chosen parameter, test summary, per-event test table, flag Series).
+    """
+    rows = []
+    for param, thr in thresholds.items():
+        summary, _ = evaluate_flags(score[tune] >= thr, labels[tune], events_tune, config)
+        rows.append({"param": param, "threshold": thr, **summary})
+    table = pd.DataFrame(rows)
+    table["far"] = table["false_alarm_days"] / table["clean_days"]
+    if criterion == "f1":
+        best = table.loc[table["f1_days"].idxmax()]
+    elif criterion == "far":
+        within = table[table["far"] <= far_max]
+        best = (within.loc[within["recall_days"].idxmax()] if len(within)
+                else table.loc[table["far"].idxmin()])
+    else:
+        raise ValueError(f"unknown criterion {criterion!r}")
+    flag = score >= best["threshold"]
+    summary_test, per_event = evaluate_flags(flag[test], labels[test], events_test, config)
+    return table, best["param"], summary_test, per_event, flag

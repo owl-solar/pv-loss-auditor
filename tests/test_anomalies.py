@@ -132,11 +132,60 @@ def test_forest_ranks_an_obvious_outlier_first():
 
 def test_own_norm_features_removes_static_offsets():
     from src.anomalies import FEATURES, own_norm_features
-    dates = pd.date_range("2021-01-01", periods=120, freq="D")
+    dates = pd.date_range("2021-01-01", periods=300, freq="D")
     index = pd.MultiIndex.from_product([dates, ["A", "B"]], names=["date", "inverter"])
     feat = pd.DataFrame({f: 0.0 for f in FEATURES}, index=index)
     feat.loc[(slice(None), "A"), "rel_median"] = 0.97     # static offset of inverter A
     feat.loc[(slice(None), "B"), "rel_median"] = 1.00
-    dev = own_norm_features(feat)
+    dev = own_norm_features(feat, CONFIG)
     assert np.allclose(dev["dev_rel_median"], 0.0)
     assert list(dev.columns) == ["dev_" + f for f in FEATURES]
+
+
+def test_tune_and_report_chooses_on_tuning_rows_and_reports_on_test_rows():
+    from src.anomalies import tune_and_report
+    dates = pd.date_range("2021-11-01", periods=120, freq="D")
+    index = pd.MultiIndex.from_product([dates, ["A"]], names=["date", "inverter"])
+    d = index.get_level_values("date")
+    events = pd.DataFrame([
+        {"inverter": "A", "start": pd.Timestamp("2021-12-01"), "end": pd.Timestamp("2021-12-10"), "strings": 10},
+        {"inverter": "A", "start": pd.Timestamp("2022-02-01"), "end": pd.Timestamp("2022-02-10"), "strings": 10}])
+    labels, score = pd.Series("clean", index=index), pd.Series(0.0, index=index)
+    for e in events.itertuples():
+        in_fault = (d >= e.start) & (d <= e.end)
+        labels[in_fault], score[in_fault] = "fault", 1.0
+    tune, test = d <= pd.Timestamp("2021-12-31"), d > pd.Timestamp("2021-12-31")
+    table, best, summary, per_event, flag = tune_and_report(
+        score, {"low": 0.5, "high": 2.0}, labels, tune, test, events.iloc[:1], events.iloc[1:], CONFIG)
+    assert best == "low"                                  # "high" flags nothing, F1 = 0
+    assert summary["precision"] == 1.0 and summary["recall_days"] == 1.0
+    assert per_event["detected"].all()
+
+
+def test_far_criterion_respects_the_false_alarm_budget():
+    from src.anomalies import tune_and_report
+    dates = pd.date_range("2021-01-01", periods=100, freq="D")
+    index = pd.MultiIndex.from_product([dates, ["A"]], names=["date", "inverter"])
+    d = index.get_level_values("date")
+    labels = pd.Series("clean", index=index)
+    event = pd.DataFrame([{"inverter": "A", "start": dates[10], "end": dates[19], "strings": 5}])
+    labels[(d >= dates[10]) & (d <= dates[19])] = "fault"
+    score = pd.Series(0.0, index=index)
+    score[(d >= dates[10]) & (d <= dates[19])] = 1.0       # the fault scores 1.0
+    score[(d >= dates[40]) & (d <= dates[59])] = 0.6       # 20 clean days with a medium score
+    tune = np.ones(len(index), dtype=bool)
+    thr = {"loose": 0.5, "strict": 0.9}
+    # budget 10 % of 90 clean days = 9: "loose" flags 20 clean days -> too many; "strict" fits
+    _, best, _, _, _ = tune_and_report(score, thr, labels, tune, tune, event, event, CONFIG,
+                                       criterion="far", far_max=0.10)
+    assert best == "strict"
+
+
+def test_rule_score_uses_the_given_sigma_and_only_the_low_side():
+    from src.anomalies import rule_score
+    x = pd.DataFrame({"dev_rel_median": [0.0, -0.02, 0.02, -0.04]})
+    s = rule_score(x, sigma=0.01)
+    assert np.allclose(s.to_numpy(), [0.0, 2.0, -2.0, 4.0])      # loss = positive score, gain = negative
+    own = rule_score(x)                                          # sigma from x itself
+    sigma = 1.4826 * (x["dev_rel_median"] - x["dev_rel_median"].median()).abs().median()
+    assert np.allclose(own.to_numpy(), -x["dev_rel_median"].to_numpy() / sigma)

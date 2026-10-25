@@ -11,7 +11,7 @@ from src.synthetic_faults import eligible_starts, inject_faults, plan_faults
 CONFIG = load_config("configs/system_9069.yaml")
 
 
-def valid_frame(days=900, n_inv=6):
+def valid_frame(days=1400, n_inv=20):
     dates = pd.date_range("2021-01-01", periods=days, freq="D")
     cols = [f"p_ac_inv{i:02d}_kw" for i in range(1, n_inv + 1)]
     return pd.DataFrame(True, index=dates, columns=cols)
@@ -22,9 +22,10 @@ def test_plan_is_reproducible_and_respects_the_rules():
     a, b = plan_faults(valid, CONFIG), plan_faults(valid, CONFIG)
     pd.testing.assert_frame_equal(a, b)                          # same seed, same plan
     s = CONFIG["anomalies"]["synthetic"]
-    assert len(a) == len(s["levels_strings"]) * s["events_per_level"]
+    assert len(a) == len(s["durations_days"]) * len(s["levels_strings"]) * s["events_per_level"]
     assert a["is_synthetic"].all()
-    assert ((a["end"] - a["start"]).dt.days == s["window_days"] - 1).all()
+    assert ((a["end"] - a["start"]).dt.days + 1 == a["duration_days"]).all()
+    assert set(a["duration_days"]) == set(s["durations_days"])
     for _, g in a.groupby("inverter"):                           # no overlap within an inverter
         g = g.sort_values("start")
         assert (g["start"].iloc[1:].to_numpy() > g["end"].iloc[:-1].to_numpy()).all()
@@ -36,13 +37,13 @@ def test_excluded_and_invalid_days_are_avoided():
     cfg = copy.deepcopy(CONFIG)
     cfg["anomalies"]["synthetic"]["exclude_plant"] = [{"start": "2021-06-01", "end": "2021-06-10"}]
     cfg["anomalies"]["synthetic"]["exclude_inverter"] = []
-    ok = eligible_starts(valid, cfg)
-    w, b = 21, 15
+    ok = eligible_starts(valid, cfg, 21)
+    w, b = 21, cfg["anomalies"]["synthetic"]["buffer_days"]
     # no start whose window, widened by the buffer, touches the excluded block
     blocked_starts = ok.loc[pd.Timestamp("2021-06-01") - pd.Timedelta(days=w - 1 + b):
                             pd.Timestamp("2021-06-10") + pd.Timedelta(days=b)]
     assert not blocked_starts.any().any()
-    assert ok.loc["2021-04-20"].all()                              # far away: allowed
+    assert ok.loc["2021-04-01"].all()                              # far away: allowed
     assert not ok.loc["2021-03-02", "p_ac_inv02_kw"]               # window contains missing days
     assert ok.loc["2021-03-02", "p_ac_inv01_kw"]                   # other inverters unaffected
 

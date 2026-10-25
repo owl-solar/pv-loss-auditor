@@ -305,6 +305,11 @@ anomalies:
   min_peers: 10
   # A day-inverter row needs at least this many valid steps (24 x 5 min = 2 h).
   min_day_steps: 24
+  # Own norm of an inverter: centred rolling median of its daily features. A fault longer than
+  # about half of the window is absorbed into the norm (the real inv30 event of 45 days was,
+  # with a 61-day window). 121 days catches faults up to ~60 days.
+  norm_window_days: 121
+  norm_min_days: 40
 
   # SYNTHETIC string faults (src/synthetic_faults.py). Injected into the real AC series, always
   # labelled synthetic. A fault of k strings multiplies the AC of one inverter by (1 - k / N).
@@ -316,10 +321,10 @@ anomalies:
     # k = number of lost strings. 1-3 = below the expected detection limit (~3 strings);
     # 40 strings (-23.5 %) is the size of the real inv30 event of 2020-10 / 11.
     levels_strings: [1, 2, 3, 5, 10, 20, 40]
-    events_per_level: 12
-    window_days: 21            # a fault lasts 21 local days, abrupt onset, constant size
+    events_per_level: 12       # per level AND per duration
+    durations_days: [21, 60]   # faults last 21 or 60 local days, abrupt onset, constant size
     min_valid_share: 0.9       # share of window days with a daily feature for that inverter
-    buffer_days: 15            # distance from excluded periods (the own-norm window is +-30 d)
+    buffer_days: 30            # distance from excluded periods (half of the own-norm window is 60 d)
     # Real events must not be mixed with injected labels. Plant-wide: every inverter is excluded.
     exclude_plant:
       - {start: "2020-12-12", end: "2020-12-18", reason: "plant-wide stop, 26 inverters down"}
@@ -340,6 +345,27 @@ anomalies:
     random_state: 9069
     # Share of inverter-days flagged. Chosen on the tuning years (max day-level F1), reported on
     # the later years, so the figures are not tuned on the events they are reported on.
-    contamination_grid: [0.002, 0.005, 0.01, 0.02, 0.03, 0.05]
+    contamination_grid: [0.002, 0.005, 0.007, 0.01, 0.015, 0.02, 0.03, 0.05, 0.08, 0.12]
     tune_until: "2021-12-31"
-    min_flag_days: 3           # an event counts as detected if >= 3 of its 21 days are flagged
+    # False-alarm budget of the second criterion: share of clean inverter-days flagged.
+    far_max: 0.01
+    min_flag_days: 3           # an event counts as detected if >= 3 of its days are flagged
+    # Variant with fewer features: tests whether noisy features dilute a weak shift.
+    features_small: [dev_rel_median, dev_frac_below95]
+
+  # Baseline without ML: flag a day if dev_rel_median < -k x robust sigma (MAD of all days,
+  # no labels). k is chosen on the tuning years like the forest's contamination.
+  rule:
+    k_grid: [1, 1.5, 2, 2.5, 3, 3.5, 4, 5, 6, 8]
+
+  # Outage episodes found in the down-state map (notebook 05, section 3): used to check, per
+  # episode, whether the stopped inverters are real (meter agrees) or false zeros (it does not).
+  episodes:
+    - {start: "2020-12-12", end: "2020-12-18"}
+    - {start: "2021-01-02", end: "2021-01-11"}
+    - {start: "2021-10-01", end: "2021-12-02"}
+    - {start: "2022-05-23", end: "2022-10-18"}
+    - {start: "2022-10-20", end: "2022-10-25"}
+    - {start: "2022-10-26", end: "2022-12-10"}
+    - {start: "2022-12-15", end: "2023-04-18"}
+    - {start: "2023-04-19", end: "2023-11-16"}
