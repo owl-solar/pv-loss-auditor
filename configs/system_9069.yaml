@@ -209,3 +209,44 @@ clean:
     '^t_amb_': [-30, 50]
     '^wind_speed': [0, 60]
     '^wind_dir': [0, 360]
+
+# Expected-yield model (src/model.py, notebook 02). Built from nameplate data and explicit
+# design losses, NOT calibrated on the measurements: whatever the plant loses beyond these
+# (soiling, degradation, sensor bias, outages) must show up in the residual.
+model:
+  # Plane-of-array input: mean of the valid reference cells. Cells 04 / 10 agree within 2 %;
+  # cell 01 reads 3.5-5.4 % low and is not used (notebook 01, section 3).
+  poa_channels: [poa_ref04_wm2, poa_ref10_wm2]
+  # Back-of-module thermocouples (03 is excluded in the cleaning). Mean of the valid ones.
+  t_mod_channels: [t_mod_tc01s1_c, t_mod_tc06s1_c, t_mod_tc10s1_c]
+  t_amb_channel: t_amb_ws01s1_c       # ambient, station 01 (the others hold values 20-27 % of the time)
+  # Cell temperature = back-of-module + delta_t x G / 1000 (Sandia, open rack, glass / polymer
+  # back sheet). The thermocouple sits behind the cell, the junction is a little hotter.
+  delta_t_cell_c: 3
+  # No modelled fallback for missing thermocouples: measured T exists on 97.7 % of daylight
+  # steps, a Faiman fallback (pvlib defaults, wind 1 m/s) would fill only 0.08 % more and reads
+  # +5.8 C above the thermocouples (median of POA > 200 W/m2). A calibrated thermal model is
+  # needed in Phase 4 (Open-Meteo), not here.
+  # Temperature coefficient: DC-weighted mean over the module table (-0.416 %/C). The 295 W
+  # modules with -0.28 are 20 % of the DC. Measured on the plant (notebook 02, section 3):
+  # -0.35 ... -0.43 %/C, no inverter group at -0.28.
+  gamma_source: nameplate_weighted
+  # DC design losses in percent, combined multiplicatively by pvlib.pvsystem.pvwatts_losses.
+  # Soiling, shading, snow, availability and age are set to 0 on purpose: they are what the
+  # audit measures. Typical PVsyst-like values for a ground-mount plant, to be reviewed.
+  dc_losses_pct: {lid: 1.5, mismatch: 2.0, wiring: 1.5, connections: 0.5, nameplate_rating: 1.0}
+  # PVWatts inverter. Nominal efficiency of a central inverter of this class and vintage (to be
+  # reviewed, the data cannot separate it from DC losses). Output is clipped at the AC rating.
+  inverter: {eta_inv_nom: 0.98, eta_inv_ref: 0.9637}
+
+# KPI definitions (src/kpi.py, notebook 02).
+kpi:
+  meter_channel: p_ac_meter2_kw      # plant meter (sum of inverters / meter = 1.022)
+  # Inverter-step with POA above this and valid AC counts toward availability.
+  availability_poa_min_wm2: 50
+  # Inverter is "down" if its AC power is below this fraction of its rating at such a step.
+  down_p_ac_fraction: 0.01
+  # Day counts toward daily KPIs if this share of daylight inverter-steps is valid.
+  day_min_coverage: 0.9
+  # Cell drift threshold relative to the pyranometer; above it a correction is discussed.
+  drift_threshold_pct_per_year: 0.5

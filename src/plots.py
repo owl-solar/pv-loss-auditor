@@ -174,3 +174,89 @@ def clock_offset_plot(offsets, base, other, windows, title=""):
     axes[0, 0].set_title(title, loc="left", fontsize=11, color=INK, pad=22)
     fig.tight_layout()
     return fig
+
+
+# Categorical slots 1-3 of the reference palette, always in this order (never cycled).
+SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
+GRID = "#e6e5e1"
+
+
+def _style(ax, title):
+    ax.set_title(title, loc="left", fontsize=10, color=INK)
+    ax.grid(color=GRID, linewidth=0.8)
+    ax.set_axisbelow(True)
+    ax.tick_params(colors=INK, labelsize=8)
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+
+
+def gamma_plot(table, nameplate_pct, title=""):
+    """gamma per inverter (within-month fit) with the DC-weighted nameplate value and -0.28."""
+    fig, ax = plt.subplots(figsize=(12, 3.8))
+    x = np.arange(len(table))
+    ax.plot(x, table["within_month"], "o", color=SERIES[0], markersize=6, label="measured, within-month fit")
+    ax.axhline(nameplate_pct, color=INK, linewidth=1.2, label=f"nameplate, DC-weighted ({nameplate_pct:.2f})")
+    ax.axhline(-0.28, color=MUTED, linewidth=1, linestyle="--", label="295 W module datasheet (-0.28)")
+    ax.axhline(-0.45, color=MUTED, linewidth=1, linestyle=":", label="300 W module datasheet (-0.45)")
+    ax.set_xticks(x, [c[8:10] for c in table.index], fontsize=7)
+    ax.set_xlabel("inverter", fontsize=9)
+    ax.set_ylabel("gamma, %/°C", fontsize=9)
+    # Legend below the axis label: inside the axes it would cover the reference lines.
+    ax.legend(fontsize=8, frameon=False, ncol=4, loc="upper left", bbox_to_anchor=(0, -0.2))
+    _style(ax, title)
+    fig.tight_layout()
+    return fig
+
+
+def drift_plot(monthly, title=""):
+    """Monthly median ratio of each reference cell to pyranometer 02B (one line per cell)."""
+    fig, ax = plt.subplots(figsize=(12, 3.8))
+    x = monthly.index.to_timestamp()
+    for color, col in zip(SERIES, monthly.columns):
+        ax.plot(x, monthly[col], color=color, linewidth=2, marker="o", markersize=4, label=col)
+        ax.annotate(col, (x[-1], monthly[col].iloc[-1]), xytext=(6, 0), textcoords="offset points",
+                    fontsize=8, color=INK, va="center")
+    ax.set_ylabel("cell / pyranometer 02B", fontsize=9)
+    ax.legend(fontsize=8, frameon=False, loc="lower left", ncol=3)
+    _style(ax, title)
+    fig.tight_layout()
+    return fig
+
+
+def pr_variants_plot(table, title=""):
+    """Monthly PR: raw (A), STC-corrected (B), weather-corrected (C); excluding downtime."""
+    fig, ax = plt.subplots(figsize=(12, 4))
+    x = table.index.to_timestamp()
+    labels = {"pr_raw_excl_down": "A  raw", "pr_stc_excl_down": "B  T_ref = 25 °C",
+              "pr_wc_excl_down": "C  T_ref = period mean"}
+    for color, (col, label) in zip(SERIES, labels.items()):
+        ax.plot(x, table[col], color=color, linewidth=2, marker="o", markersize=4, label=label)
+    ax.set_ylabel("PR (running inverters)", fontsize=9)
+    ax.legend(fontsize=8, frameon=False, loc="lower left", ncol=3)
+    _style(ax, title)
+    fig.tight_layout()
+    return fig
+
+
+def downtime_heatmap(down_share, title=""):
+    """Share of lit inverter-steps with the inverter down: inverters x local months.
+
+    Sequential single hue, light = little downtime, dark = a lot; gray = no usable data.
+    """
+    fig, ax = plt.subplots(figsize=(13, 7))
+    cmap = LinearSegmentedColormap.from_list("blue_seq", BLUE_RAMP)
+    cmap.set_bad(NO_DATA_GRAY)
+    values = np.ma.masked_invalid(down_share.to_numpy(dtype=float))
+    mesh = ax.pcolormesh(np.arange(down_share.shape[1] + 1), np.arange(down_share.shape[0] + 1),
+                         values, cmap=cmap, vmin=0, vmax=1, edgecolors="white", linewidth=0.4)
+    months = [str(p) for p in down_share.columns]
+    step = 3
+    ax.set_xticks(np.arange(0, len(months), step) + 0.5, months[::step], fontsize=7, rotation=90)
+    ax.set_yticks(np.arange(len(down_share.index)) + 0.5, [c[8:10] for c in down_share.index], fontsize=7)
+    ax.invert_yaxis()
+    ax.set_ylabel("inverter", fontsize=9)
+    cbar = fig.colorbar(mesh, ax=ax, fraction=0.03, pad=0.01)
+    cbar.set_label("share of lit time down", fontsize=8)
+    ax.set_title(title, loc="left", fontsize=10, color=INK)
+    fig.tight_layout()
+    return fig
