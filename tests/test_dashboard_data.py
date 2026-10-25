@@ -1,0 +1,81 @@
+"""Tests of the dashboard aggregations on a small hand-made monthly waterfall (SYNTHETIC numbers)."""
+
+import pandas as pd
+import pytest
+
+from src import dashboard_data as dd
+from src.losses import STEPS
+
+
+def monthly_table():
+    """Three months in two years. Every step is 1 000 kWh except: downtime 5 000 (2020-06),
+    running_shortfall 2 000 (2021-01), channel_credit -1 000 (a credit is negative)."""
+    index = pd.Index(["2020-05", "2020-06", "2021-01"], name="period")
+    t = pd.DataFrame({step: 1000.0 for step in STEPS}, index=index)
+    t.loc["2020-06", "downtime"] = 5000.0
+    t.loc["2021-01", "running_shortfall"] = 2000.0
+    t["channel_credit"] = -1000.0
+    t["nominal_kwh"] = 100000.0
+    t["expected_kwh"] = 60000.0
+    t["metered_kwh"] = t["nominal_kwh"] - t[STEPS].sum(axis=1)       # closes by construction
+    return t
+
+
+def test_yearly_sums_months_per_calendar_year():
+    y = dd.yearly(monthly_table())
+    assert list(y.index) == ["2020", "2021"]
+    assert y.loc["2020", "downtime"] == 6000.0 and y.loc["2021", "downtime"] == 1000.0
+    assert y.loc["2020", "nominal_kwh"] == 200000.0
+
+
+def test_causes_follow_the_presentation_groups():
+    c = dd.causes_table(monthly_table(), per="year")
+    # Downtime group = downtime + unknown_ac + channel_credit; 2020: (1000+5000) + 2000 - 2000
+    assert c.loc["2020", "Downtime"] == 6000.0
+    assert c.loc["2021", "Running shortfall"] == 2000.0
+    # Design group = temperature + dc_losses + inverter + clipping = 4 x 1000 per month
+    assert c.loc["2020", "Design"] == 8000.0
+    # After inverters group = after_inverters + reconciliation = 2 x 1000 per month
+    assert c.loc["2021", "After inverters"] == 2000.0
+
+
+def test_causes_add_up_to_nominal_minus_metered():
+    m = monthly_table()
+    for per in ("year", "total"):
+        c = dd.causes_table(m, per=per)
+        losses = c[["Design", "Downtime", "Running shortfall", "After inverters"]].sum(axis=1)
+        assert (losses + c["metered_kwh"]).round(6).eq(c["nominal_kwh"]).all()
+
+
+def test_audit_total_prices_downtime_and_shortfall_only():
+    r = dd.audit_total(monthly_table(), usd_per_mwh=30.0)
+    # downtime group: 7000 over three months; running shortfall: 1000 + 1000 + 2000 = 4000
+    assert r["gwh"] == pytest.approx(11000 / 1e6)
+    assert r["usd"] == pytest.approx(11000 / 1000 * 30.0)          # 11 MWh x 30 USD/MWh = 330 USD
+
+
+def test_waterfall_steps_close_and_keep_the_order():
+    steps = dd.waterfall_steps(monthly_table())
+    assert list(steps["label"]) == ["nominal"] + STEPS + ["metered"]
+    assert steps.loc[steps.label == "channel_credit", "kwh"].iloc[0] == -3000.0
+    assert dd.waterfall_steps(monthly_table(), year=2021)["kwh"].iloc[0] == 100000.0
+
+
+def test_waterfall_steps_refuse_an_open_balance():
+    m = monthly_table()
+    m.loc["2020-05", "metered_kwh"] += 50.0
+    with pytest.raises(ValueError):
+        dd.waterfall_steps(m)
+
+
+def test_scale_units():
+    kwh = pd.DataFrame({"Downtime": [2_000_000.0, 1_000_000.0]}, index=["2020", "2021"])
+    nominal = pd.Series([40_000_000.0, 50_000_000.0], index=kwh.index)
+    gwh, title, _ = dd.scale(kwh, nominal, "GWh", 30.0)
+    assert gwh["Downtime"].tolist() == [2.0, 1.0] and title == "GWh"
+    usd, _, _ = dd.scale(kwh, nominal, "USD thousand", 30.0)
+    assert usd["Downtime"].tolist() == [60.0, 30.0]                # 2 000 MWh x 30 USD = 60 000 USD
+    share, _, _ = dd.scale(kwh, nominal, "% of nominal energy", 30.0)
+    assert share["Downtime"].tolist() == [5.0, 2.0]
+    with pytest.raises(ValueError):
+        dd.scale(kwh, nominal, "EUR", 30.0)
