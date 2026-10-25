@@ -1,0 +1,171 @@
+"""Loss waterfall: nameplate energy at the measured irradiance -> energy at the plant meter.
+
+Sequential cascade, every step is the difference of two neighbouring cumulative quantities, so the
+steps add up to (nominal - metered) by construction:
+
+  nominal  P0 x G/1000                                   (STC energy at the measured irradiance)
+  - temperature        gamma x (T_cell - 25 C), negative loss = gain in cold weather
+  - design DC losses   LID, mismatch, wiring, ... (an ASSUMPTION, see `model:` in the config)
+  - inverter           PVWatts efficiency curve, unclipped
+  - clipping           AC above the inverter rating
+  = expected           the model of src/model.py
+  - downtime           inverter reports ~0 at daylight (AC < 1 % of rating at POA > 50 W/m2)
+  - unknown AC         inverter-steps with no valid AC value (missing or flagged)
+  - channel credit     energy that the meter sees but the inverter channels do not report
+                       (days when sum(inverters) / meter is low): NOT a loss, it corrects the two
+                       lines above, so it is negative
+  - running shortfall  expected - measured on inverters that run (soiling, degradation, wrong
+                       design losses, sensor bias ...): split further in Phase 4
+  - reconciliation     meter vs sum of inverters on the remaining days (noise, calibration)
+  - after inverters    transformer and cable losses between inverter and meter
+  = metered energy
+
+Scope: 5-min steps with daylight, POA, cell temperature and meter all known, so both sides of
+every difference cover the same steps. Signs: positive = loss.
+"""
+
+import copy
+
+import numpy as np
+import pandas as pd
+
+from src.kpi import _period, inverter_states, step_hours
+from src.model import dc_loss_fraction, expected_power, inverter_dc_kw, weighted_gamma
+
+STEPS = ["temperature", "dc_losses", "inverter", "clipping", "downtime", "unknown_ac",
+         "channel_credit", "running_shortfall", "reconciliation", "after_inverters"]
+
+
+def inverter_ac_unclipped(p_dc_kw, config):
+    """PVWatts inverter AC without the clipping at the rating (kW).
+
+    Same formula as pvlib.inverter.pvwatts (Driesse), which offers no switch to turn the clip
+    off; tests/test_losses.py checks that both agree below the rating.
+    """
+    inv = config["model"]["inverter"]
+    eta_nom, eta_ref = inv["eta_inv_nom"], inv["eta_inv_ref"]
+    pdc0 = config["inverters"]["ac_kw"][0]["ac_kw"] / eta_nom   # as in model.expected_power
+    p_dc = p_dc_kw.clip(lower=0)
+    zeta = (p_dc / pdc0).where(p_dc > 0)                        # avoid 0 / 0 at night
+    eta = eta_nom / eta_ref * (-0.0162 * zeta - 0.0059 / zeta + 0.9858)
+    return (eta * p_dc).clip(lower=0).fillna(0.0)
+
+
+def loss_waterfall(inputs, ac, t_cell, config, gamma=None, freq="Y"):
+    """Waterfall in kWh per local period (rows), one column per step.
+
+    Columns: nominal_kwh, the loss steps in STEPS (kWh, positive = loss), expected_kwh,
+    metered_kwh and closure_kwh (nominal - sum of steps - metered; must be ~0).
+    """
+    gamma = weighted_gamma(config) if gamma is None else gamma
+    cfg = config["losses"]
+    n = ac.shape[1]
+    dt = step_hours(inputs.index)
+    poa = inputs["poa_wm2"]
+    meter = inputs["p_ac_meter_kw"]
+
+    # Scope: the same steps for every quantity of the waterfall.
+    scope = inputs["daylight"] & poa.notna() & t_cell.notna() & meter.notna()
+    scope_2d = pd.DataFrame(np.repeat(scope.to_numpy()[:, None], n, axis=1),
+                            index=ac.index, columns=ac.columns)
+
+    # --- model side: one inverter block, then x n inverters --------------------------------
+    p0 = inverter_dc_kw(config)
+    nominal = p0 * poa / 1000                                   # kW per inverter
+    after_temp = nominal * (1 + gamma * (t_cell - 25.0))
+    after_dc = after_temp * (1 - dc_loss_fraction(config))
+    ac_unclipped = inverter_ac_unclipped(after_dc, config)
+    ac_expected = expected_power(poa, t_cell, config, gamma)["p_ac_kw"]
+    # Model side in kWh for the whole plant, only on steps in scope.
+    to_kwh = n * dt
+    w = pd.DataFrame({
+        "nominal_kwh": nominal * to_kwh,
+        "temperature": (nominal - after_temp) * to_kwh,
+        "dc_losses": (after_temp - after_dc) * to_kwh,
+        "inverter": (after_dc - ac_unclipped) * to_kwh,
+        "clipping": (ac_unclipped - ac_expected) * to_kwh,
+        "expected_kwh": ac_expected * to_kwh,
+    }).where(scope, 0.0)
+
+    # --- measured side ----------------------------------------------------------------------
+    _, down_all = inverter_states(ac, poa, config)
+    known = ac.notna() & scope_2d
+    down = down_all & scope_2d
+    unknown = ac.isna() & scope_2d
+    running = known & ~down
+    exp_2d = pd.DataFrame(np.repeat(ac_expected.to_numpy()[:, None], n, axis=1),
+                          index=ac.index, columns=ac.columns)
+    gap = (exp_2d - ac).where(known)                            # expected - measured, kW
+
+    w["downtime"] = gap.where(down).sum(axis=1) * dt
+    w["unknown_ac"] = exp_2d.where(unknown).sum(axis=1) * dt
+    w["running_shortfall"] = gap.where(running).sum(axis=1) * dt
+
+    # Meter at inverter-AC level; the part between is lost after the inverters.
+    k = cfg["inv_to_meter"]
+    meter_kwh = (meter * dt).where(scope, 0.0)
+    w["after_inverters"] = meter_kwh * (k - 1)
+    s_known = ac.where(known).sum(axis=1) * dt                  # what the channels report
+    diff = meter_kwh * k - s_known                              # what the meter sees on top
+
+    # Daily test: low sum(inverters) / meter => channels lose energy (zeros while running).
+    day = _period(inputs.index, "D")
+    ratio = s_known.groupby(day).transform("sum") / (meter_kwh * k).groupby(day).transform("sum")
+    channel_day = (ratio < 1 - cfg["channel_tolerance"]).fillna(False)
+    w["channel_credit"] = -diff.where(channel_day, 0.0)
+    w["reconciliation"] = -diff.where(~channel_day, 0.0)
+    w["metered_kwh"] = meter_kwh
+    w["channel_day"] = channel_day & scope
+
+    g = w.drop(columns="channel_day").groupby(_period(inputs.index, freq)).sum()
+    g = g[g["nominal_kwh"] > 0]
+    g["closure_kwh"] = g["nominal_kwh"] - g[STEPS].sum(axis=1) - g["metered_kwh"]
+    g.index.name = "local_period"
+    return g
+
+
+def check_closure(table, tolerance_kwh=1.0):
+    """Stop if the steps do not add up to nominal - metered in any period."""
+    worst = table["closure_kwh"].abs().max()
+    if worst > tolerance_kwh:
+        raise ValueError(f"waterfall does not close: worst period off by {worst:.1f} kWh")
+
+
+def to_usd(table_kwh, price_base, price_low, price_high):
+    """Table in kWh -> dict of tables in USD at the base price and the sensitivity band."""
+    return {name: table_kwh * p / 1000
+            for name, p in (("base", price_base), ("low", price_low), ("high", price_high))}
+
+
+def dc_loss_sensitivity(inputs, ac, t_cell, config, gamma=None):
+    """Annual running shortfall and total losses for each assumed design DC-loss total.
+
+    Mostly `dc_losses` and `running_shortfall` trade places (downtime moves slightly because it
+    is valued at the expected power), which shows how much of the unexplained shortfall depends
+    on the assumed design losses.
+    """
+    rows = {}
+    for total in config["losses"]["dc_loss_sensitivity_pct"]:
+        c = copy.deepcopy(config)
+        # One loss item with the whole total: pvwatts_losses combines the items multiplicatively,
+        # so a single item reproduces the total exactly.
+        c["model"]["dc_losses_pct"] = {"lid": total, "mismatch": 0, "wiring": 0,
+                                       "connections": 0, "nameplate_rating": 0}
+        t = loss_waterfall(inputs, ac, t_cell, c, gamma, freq="Y")
+        check_closure(t)
+        rows[total] = t[["dc_losses", "downtime", "running_shortfall"]].sum()
+    return pd.DataFrame(rows).T.rename_axis("dc_loss_pct")
+
+
+# Presentation groups: columns of the waterfall table -> cause shown to a reader.
+CAUSES = {
+    "design (temperature, DC, inverter, clipping)": ["temperature", "dc_losses", "inverter", "clipping"],
+    "downtime (net of channel loss)": ["downtime", "unknown_ac", "channel_credit"],
+    "running shortfall": ["running_shortfall"],
+    "after inverters, meter reconciliation": ["after_inverters", "reconciliation"],
+}
+
+
+def by_cause(table):
+    """Waterfall steps summed into the groups of CAUSES (kWh)."""
+    return pd.DataFrame({name: table[cols].sum(axis=1) for name, cols in CAUSES.items()})

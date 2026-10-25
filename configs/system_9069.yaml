@@ -251,6 +251,19 @@ kpi:
   # Cell drift threshold relative to the pyranometer; above it a correction is discussed.
   drift_threshold_pct_per_year: 0.5
 
+# Loss waterfall (src/losses.py, notebook 03). Decisions with the user: sequential order,
+# meter-based end point, daily meter reconciliation for data-channel loss.
+losses:
+  # Sum of inverters / meter 2 in 2020-2022 (outages real, channels complete): transformer and
+  # cable losses after the inverters. Used to bring the meter to inverter-AC level.
+  inv_to_meter: 1.022
+  # A local day is a "channel-loss day" if sum(inverter AC) / (meter x inv_to_meter) is below
+  # 1 - tolerance: the meter sees energy that the inverter channels do not report. 2020-2022
+  # daily ratios scatter within about +-3 % (to be checked in notebook 03).
+  channel_tolerance: 0.03
+  # Design DC-loss totals for the sensitivity table (the base 6.34 % is an assumption).
+  dc_loss_sensitivity_pct: [4.0, 6.34, 8.0]
+
 # Electricity price for valuing lost energy (src/prices.py, Phase 3).
 # Connection type (decided with the user from satellite images and the data): utility-scale,
 # behind step-up transformers, next to a high-voltage substation (sum of inverters / meter 2 =
