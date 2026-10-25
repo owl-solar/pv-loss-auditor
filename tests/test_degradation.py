@@ -189,3 +189,82 @@ def test_pr_by_poa_source_leaves_stopped_inverters_out_and_skips_thin_hours():
     # (< min_valid = 10 of 12) and is dropped, which does not change the ratio here.
     assert pr["plant"].loc[2021] == pytest.approx(400 / (p0 * 0.8))
     assert pr["same"].loc[2021] == pytest.approx(pr["plant"].loc[2021])
+
+
+# --- tables built for the dashboard export (src/degradation.py: yoy_table ... shortfall_split) ---
+
+def test_yoy_table_has_both_series_and_both_periods():
+    days = pd.date_range("2018-01-01", periods=3 * 365, freq="D")
+    t = np.arange(len(days)) / 365.0
+    series = 0.9 * (1 - 0.01 * t) * (1 + 0.03 * np.sin(2 * np.pi * t))   # -1 %/yr, no noise
+    daily = pd.DataFrame({"energy_norm": series, "pr_wc": series}, index=days)
+    table = dg.yoy_table(daily, end="2019-12-31")
+    assert list(table["period"]) == ["full", "to 2019-12"] * 2
+    assert list(table["series"]) == ["energy_norm"] * 2 + ["pr_wc"] * 2
+    assert table["days"].tolist() == [len(days), 730] * 2          # 2018 + 2019 = 730 days
+    assert table["rd_pct_yr"].between(-1.2, -0.8).all()
+
+
+def test_soiling_table_rows_and_loss_column():
+    daily, rain = sawtooth_soiling()
+    table = dg.soiling_table(daily, rain, thresholds=(2,), end="2019-12-31")
+    assert list(table["cleaning_info"]) == ["upward jumps only", "rain >= 2 mm + jumps",
+                                            "rain >= 2 mm + jumps"]
+    assert list(table["period"]) == ["full", "full", "to 2019-12"]
+    assert np.allclose(table["loss_pct"], (1 - table["ratio"]) * 100)
+
+
+def test_hourly_plant_poa_labels_hour_end_and_drops_thin_hours():
+    index = pd.date_range("2021-06-01 12:05", "2021-06-01 15:00", freq="5min", tz="UTC")
+    poa = pd.Series(600.0, index=index)                      # 12:05 ... 15:00 = 36 values
+    poa = poa.drop(poa.index[:3])                            # hour ending 13:00 keeps 9 of 12
+    h = dg.hourly_plant_poa(poa)
+    assert h.index[0] == pd.Timestamp("2021-06-01 13:00", tz="UTC")   # label = end of the hour
+    assert np.isnan(h.iloc[0])                               # 9 < 10 values: dropped
+    assert h.iloc[1:].eq(600.0).all()                        # complete hours keep their mean
+
+
+def test_external_poa_comparison_reads_a_constant_bias():
+    hours = pd.date_range("2021-01-01", periods=3 * 30 * 24, freq="1h", tz="UTC")
+    plant = pd.Series(np.tile([0.0, 150.0, 300.0, 500.0, 800.0, 400.0], len(hours) // 6), index=hours)
+    external = {"src": plant * 1.1}
+    stats, ratio = dg.external_poa_comparison(plant, external, window=2)
+    row = stats.iloc[0]
+    assert row["hours"] == len(hours) // 6 * 4               # 4 of every 6 hours are above 200 W/m2
+    assert row["mbe_pct"] == pytest.approx(10.0)
+    # sun hours 300, 500, 800, 400: mean 500, mean square 285000; error = 0.1 x value
+    # -> nRMSE = 0.1 x sqrt(285000) / 500 = 10.68 % (above the 10 % bias because values vary)
+    assert row["nrmse_pct"] == pytest.approx(10.677, abs=0.001)
+    assert row["r"] == pytest.approx(1.0)
+    assert ratio["src"].round(6).eq(1.1).all()
+    assert ratio["src_2m"].isna().sum() == 1                 # rolling mean needs 2 months
+    assert ratio["src_2m"].dropna().round(6).eq(1.1).all()
+
+
+def test_weighted_loss_pct_is_insolation_weighted():
+    poa = pd.Series([100.0, 300.0])
+    loss = pd.Series([0.10, 0.00])
+    assert dg.weighted_loss_pct(poa, loss) == pytest.approx(2.5)     # 10 / 400
+
+
+def test_shortfall_split_subtracts_soiling_and_aoi_as_a_range():
+    days = pd.date_range("2020-06-01", periods=4, freq="D").append(pd.date_range("2021-06-01", periods=4, freq="D"))
+    energy = [0.90] * 4 + [0.85] * 4
+    daily = pd.DataFrame({"energy_norm": energy}, index=days)
+    split = dg.shortfall_split(daily, soiling_pct=1.5, aoi_pct=3.0)
+    assert split.loc[2020, "shortfall_pct"] == pytest.approx(10.0)
+    assert split.loc[2021, "shortfall_pct"] == pytest.approx(15.0)
+    assert split.loc[2020, "unexplained_min_pct"] == pytest.approx(5.5)      # 10 - 1.5 - 3
+    assert split.loc[2020, "unexplained_max_pct"] == pytest.approx(8.5)      # 10 - 1.5
+    assert split.loc[2021, "unexplained_max_pct"] == pytest.approx(13.5)
+
+
+def test_yoy_rate_interval_is_reproducible():
+    # RdTools bootstraps the interval with the global numpy state; yoy_rate fixes the seed so the
+    # committed dashboard tables do not change from one export to the next.
+    days = pd.date_range("2018-01-01", periods=3 * 365, freq="D")
+    rng = np.random.default_rng(0)
+    series = pd.Series(0.9 + rng.normal(0, 0.01, len(days)), index=days)
+    first = dg.yoy_rate(series)
+    np.random.seed(123)                                   # disturb the global state in between
+    assert dg.yoy_rate(series) == first

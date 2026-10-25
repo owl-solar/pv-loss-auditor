@@ -10,6 +10,7 @@ are running (a few survivors make a noisy ratio) and the daily
 plane-of-array insolation is high enough for a stable ratio (degradation.min_daily_poa_kwh_m2).
 """
 
+import numpy as np
 import pandas as pd
 
 from src.kpi import _period, inverter_states, kpi_table, step_hours, weighted_t_ref
@@ -72,13 +73,16 @@ def daily_series(inputs, ac, t_cell, config, gamma=None):
     return out.asfreq("D")
 
 
-def yoy_rate(series, uncertainty_method="simple"):
+def yoy_rate(series, uncertainty_method="simple", seed=1):
     """RdTools year-on-year degradation in %/year with its confidence interval.
 
     The YoY method compares each day with the same day one year later (so season cancels), then
     takes the median of all pairs: robust against outlier days. Returns (rd, ci_low, ci_high).
+    The interval is bootstrapped with numpy's global random state, so the seed is fixed (as in
+    soiling_run): the rate itself does not depend on it, the interval moves by up to ~0.04 %/yr.
     """
     from rdtools.degradation import degradation_year_on_year
+    np.random.seed(seed)
     rd, ci, _ = degradation_year_on_year(series.dropna(), recenter=True,
                                          uncertainty_method=uncertainty_method)
     return rd, ci[0], ci[1]
@@ -162,3 +166,91 @@ def pr_by_poa_source(inputs, ac, config, external, min_valid=10):
         reference = (p0 * series[ok] / 1000 * h["n_up"][ok]).groupby(year).sum()
         rows[name] = energy / reference
     return pd.DataFrame(rows)
+
+
+def yoy_table(daily, end="2022-12-31"):
+    """YoY degradation of both RdTools candidates, for the full period and up to `end`.
+
+    The step in 2023 is not ageing, so both periods are reported side by side.
+    """
+    rows = []
+    for col in ("energy_norm", "pr_wc"):
+        for label, s in (("full", daily[col]), ("to " + end[:7], daily[col][:end])):
+            rd, lo, hi = yoy_rate(s)
+            rows.append({"series": col, "period": label, "days": int(s.notna().sum()),
+                         "rd_pct_yr": rd, "ci_low": lo, "ci_high": hi})
+    return pd.DataFrame(rows)
+
+
+def soiling_table(daily, rain, thresholds=(1, 2, 5, 10), end="2022-12-31"):
+    """SRR soiling ratio for different cleaning information, loss_pct = (1 - ratio) x 100.
+
+    Rows: upward jumps only, rain >= each threshold (mm) + jumps, and the 2 mm case up to `end`.
+    The 2 mm case on the full period is the one used in the shortfall split.
+    """
+    names = ["ratio", "ci_low", "ci_high", "valid", "intervals"]
+    rows = [{"cleaning_info": "upward jumps only", "period": "full",
+             **dict(zip(names, soiling_run(daily)))}]
+    for th in thresholds:
+        rows.append({"cleaning_info": f"rain >= {th} mm + jumps", "period": "full",
+                     **dict(zip(names, soiling_run(daily, rain, th)))})
+    rows.append({"cleaning_info": "rain >= 2 mm + jumps", "period": "to " + end[:7],
+                 **dict(zip(names, soiling_run(daily[:end], rain, 2.0)))})
+    table = pd.DataFrame(rows)
+    table["loss_pct"] = (1 - table["ratio"]) * 100
+    return table
+
+
+def hourly_plant_poa(poa, min_valid=10):
+    """Plant POA as hourly means of the PRECEDING hour (labels at hour end, as Open-Meteo).
+
+    An hour counts only if at least `min_valid` of its 12 five-minute values exist.
+    """
+    h = poa.resample("1h", closed="right", label="right")
+    return h.mean().where(h.count() >= min_valid)
+
+
+def external_poa_comparison(plant_hourly, external, min_poa=200, window=12):
+    """External hourly POA against the plant sensors.
+
+    Returns (stats, ratio):
+    - stats: per source, on hours with plant POA above `min_poa`: MBE and nRMSE in % of the mean
+      plant POA, and the correlation r;
+    - ratio: monthly external / plant insolation (sums over hours where both exist) and its
+      `window`-month rolling mean (columns <source>_12m, NaN at the start). A flat ratio means no
+      sensor drift. Index = naive month start.
+    """
+    stats, monthly = [], {}
+    for name, series in external.items():
+        both = pd.concat([plant_hourly.rename("p"), series.rename("e")], axis=1).dropna()
+        sun = both[both.p > min_poa]
+        stats.append({"source": name, "hours": len(sun),
+                      "mbe_pct": (sun.e - sun.p).mean() / sun.p.mean() * 100,
+                      "nrmse_pct": np.sqrt(((sun.e - sun.p) ** 2).mean()) / sun.p.mean() * 100,
+                      "r": sun.e.corr(sun.p)})
+        m = both.resample("MS").sum()
+        m = m[m.p > 0]
+        monthly[name] = m.e / m.p
+    ratio = pd.DataFrame(monthly)
+    ratio.index = ratio.index.tz_localize(None)
+    ratio = ratio.join(ratio.rolling(window).mean().add_suffix(f"_{window}m"))
+    return pd.DataFrame(stats), ratio
+
+
+def weighted_loss_pct(poa, loss_fraction):
+    """Period loss in % of POA: sum(poa x loss) / sum(poa). Used for the AOI loss."""
+    return float((poa * loss_fraction).sum() / poa.sum() * 100)
+
+
+def shortfall_split(daily, soiling_pct, aoi_pct):
+    """Yearly shortfall (median of 1 - energy_norm, % of expected) and what explains it.
+
+    Soiling is an estimate, AOI an upper bound (the reference cells lose to reflection too), so
+    the unexplained part is a range: min subtracts both, max only soiling.
+    """
+    split = pd.DataFrame({"shortfall_pct": (1 - daily["energy_norm"]).groupby(daily.index.year).median() * 100})
+    split["soiling_pct"] = soiling_pct
+    split["aoi_upper_bound_pct"] = aoi_pct
+    split["unexplained_min_pct"] = split["shortfall_pct"] - soiling_pct - aoi_pct
+    split["unexplained_max_pct"] = split["shortfall_pct"] - soiling_pct
+    return split
