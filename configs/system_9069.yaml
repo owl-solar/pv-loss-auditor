@@ -250,3 +250,25 @@ kpi:
   day_min_coverage: 0.9
   # Cell drift threshold relative to the pyranometer; above it a correction is discussed.
   drift_threshold_pct_per_year: 0.5
+
+# Electricity price for valuing lost energy (src/prices.py, Phase 3).
+# Connection type (decided with the user from satellite images and the data): utility-scale,
+# behind step-up transformers, next to a high-voltage substation (sum of inverters / meter 2 =
+# 1.02 = transformer losses). Georgia has no ISO / RTO, so there is no LMP (gridstatus) and the
+# CLAUDE.md branch "plants outside ISO regions" applies. No regional wholesale series was found
+# at EIA (its hubs do not cover the Southeast; the Georgia figure there is retail).
+price:
+  source: >
+    Georgia Power Company 2025 Avoided Cost and Solar Avoided Cost Projections, filed with the
+    Georgia PSC on 2025-06-27 (filing #223157, dockets 4822 and 16573), workbook sheet
+    "Proposed_AC Projections (Int)". https://psc.ga.gov/search/facts-document/?documentId=223157
+  file: data/raw/prices/georgia_power_2025_avoided_cost_projections.zip   # 249 kB, not committed
+  sheet_number: 2
+  technology: Solar Ground-Mounted Fixed Tilt     # matches 9069; "Profile Weighted Hours"
+  year: 2026                                      # first projection year, 30.19 USD/MWh
+  sensitivity_fraction: 0.30                      # reported band: base x 0.7 ... base x 1.3
+  # Limits, to be stated wherever a USD figure is shown: (1) a PROJECTION for 2026-2045 applied
+  # flat to the audit period 2020-05 ... 2023-11 (realised wholesale prices in 2021-2022 were
+  # higher because of gas prices); (2) the utility's avoided cost, not the plant's PPA price,
+  # which is unknown. The ranking of loss causes in kWh does not depend on the price.
+  # Repowering Planner (project 2) can use the whole 2026-2045 curve from the same file.
