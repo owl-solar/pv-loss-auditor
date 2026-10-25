@@ -213,7 +213,8 @@ Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stal
 - Detectors: Isolation Forest (4 and 2 features) and a plain rule (daily median below k robust
   sigmas, sigma from the REAL data: from the injected table it is inflated). Threshold chosen on
   2020–2021, reported on 2022–2023; **main criterion = false-alarm budget ≤ 1 % of clean
-  inverter-days** (max F1 hit the grid edge twice and gave 7–18 % false alarms). Event detected
+  inverter-days** (max F1 picked the grid edge for all three detectors, forests 0.12 = max, rule
+  k = 1 = min, and gave 7–18 % false alarms; corrected in Phase 6, earlier notes said "twice"). Event detected
   = ≥ 3 flagged days.
 - SYNTHETIC string faults (config `anomalies.synthetic`, seed 9069): k = 1, 2, 3, 5, 10, 20, 40
   strings of 170 per inverter (170 is derived: 967 kW / (19 × 0.300 kW); metadata string counts
@@ -223,8 +224,17 @@ Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stal
   at 0.57–0.59. **Practical detection limit about 10 strings (≈ 6 % of an inverter)**; of 30
   events with 1–5 strings only 2 found. The idea that noisy features dilute the forest is NOT
   supported (2 features no better). Real inv30: rule 38 of 41 days, forests 1–3; inv13: all 7 of 7.
+- Found in Phase 6 (dashboard): inv30 over-performs by +0.09 … +0.16 against its own norm from
+  2020-08-21 to 2020-09-21, right before the labelled real event (config window starts 09-22).
+  The forest flags 20 days there and only 1 inside the event; the rule 20 days outside, scattered
+  over 2020-07 … 2021-01. Those days are labelled clean, so they count as false alarms: 20 days =
+  0.1 % of the 16 896 clean inverter-days of the tuning years, against a budget of 1 %. Cause
+  unknown; the own-norm window is an unlikely reason (≤ 37 % of its 121 days lie in the event).
+  The event window in `anomalies.synthetic.exclude_inverter` is probably too narrow; widening it
+  is a methodological choice, not made yet (propose options first).
 - Limits to state with any number: faults are synthetic, abrupt and AC-side; 62 test events in
-  14 cells (1–7 each); precision depends on the 16 % injected days; own norm absorbs slow drift
+  14 cells (1–7 each); precision depends on the share of injected days (17 % of all
+  inverter-days, 12 % in the test years); own norm absorbs slow drift
   and faults longer than ~60 days (the 61-day window missed the real 45-day inv30 event); the
   5-minute localisation level was not built; the 2023 step is plant-wide and cannot appear in a
   peer-normalised residual.
@@ -232,6 +242,34 @@ Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stal
   2022-05-23…12-10 (inverters 23, 24, 35–40 for 149 days); in 2021-01 and 2022-12…2023-11 the
   ratio is 0.80–0.91 with 8–14 inverters "stopped": a substantial share are lost channels.
   A fault of a single string is below the noise (1 string = 0.59 %, robust noise 0.68 %).
+
+## Dashboard and README (Phase 6: built, not yet deployed or tagged)
+`src/export_dashboard.py` (runs the notebook functions once, ~80 s, deterministic: two exports give
+identical files), `app/data/` (25 parquet files + `meta.json`, 350 kB, committed), `app/Home.py`
+(Summary) and `app/pages/1_Loss_waterfall … 5_Methodology.py`, `app/common.py` (data loading,
+price slider, caveat banners, chart style), `src/dashboard_data.py` (pure aggregations, tested),
+`src/loss_groups.py` (STEPS, CAUSES, by_cause; re-exported by `losses`). Run: `streamlit run app/Home.py`.
+Decisions (taken with me, I accepted the recommended options): export + pages instead of live computation
+(needed for a public deployment); Plotly; price slider 21.13 … 39.25 USD/MWh; no EUR; light
+theme only (palette validated for light mode); the SYNTHETIC banner on the anomaly page and in its
+chart titles; no unexplained effect hidden ("What I could not explain" is on page 4 and in the
+README results).
+- Rules that came out of the work: every number in a caption is computed from the tables, not typed
+  (several typed numbers were wrong: rain days 110 not ~100, 0.5 GWh channel credit 2020-22, the
+  "3 pp step" is in measured / expected of the running inverters and not in the share of nominal
+  energy). A few numbers still come from notebooks and are marked so: cell drift −0.6 / −1.0 %/yr
+  (notebook 02), PR dip winter excess 0.3–0.5 pp and low-light ratio 0.71–0.83 (notebooks 03/04).
+- Technical notes: Streamlit does not reload imported modules of `src/`: restart the server after
+  changing `src/`. Pages add `app/` to `sys.path` themselves. `app/requirements.txt` (6 packages,
+  no pvlib / pvanalytics / boto3 / scipy) is what the deployment installs; a test checks that
+  `src.dashboard_data`, `src.config`, `src.loss_groups` import none of the heavy packages.
+  Plotly pitfalls met: legend set before `common.style()` is overwritten by it; `line-ns-open`
+  markers need `marker.color`; categories are ordered by first appearance across traces.
+- README is rewritten as a case study (result paragraph, table in USD, what the audit found,
+  "What I could not explain", how to read USD figures, QA findings, method, dashboard, reproduce).
+  Open: dashboard screenshots (taken by the user, none exist yet), the Streamlit Cloud URL (placeholder
+  comment at the top of the README), tag v1.0 only on request. Check the charts visually after
+  any chart change: the environment has no browser, so layout is checked by the user's screenshots.
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (PVWatts DC / inverter and temperature functions called directly, not
@@ -247,7 +285,8 @@ Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stal
 3. Loss waterfall MVP (expected → temperature → clipping → downtime → residual), kWh and EUR → **publish MVP**
 4. Degradation and soiling with RdTools; sensor vs Open-Meteo comparison
 5. Anomaly detection on residuals; synthetic string faults; precision/recall
-6. Streamlit dashboard; README written as a case study (problem → method → result in EUR)
+6. Streamlit dashboard; README written as a case study (problem → method → result in USD)
+   – built; open: deployment, screenshots, v1.0 tag (see "Dashboard and README")
 
 ## Repo layout
 ```
@@ -255,7 +294,7 @@ data/raw/          # downloaded data, not committed (gitignored)
 data/processed/    # cleaned parquet files, not committed
 notebooks/         # 01_data_qa.ipynb, 02_expected_yield.ipynb, ...
 src/               # reusable functions (loading, qa, model, losses, anomalies)
-app/               # Streamlit dashboard
+app/               # Streamlit dashboard: Home.py, pages/, common.py, data/ (exported tables), requirements.txt
 reports/figures/   # figures used in README
 ```
 
