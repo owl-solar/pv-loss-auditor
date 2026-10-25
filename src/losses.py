@@ -51,6 +51,27 @@ def inverter_ac_unclipped(p_dc_kw, config):
     return (eta * p_dc).clip(lower=0).fillna(0.0)
 
 
+def waterfall_scope(inputs, ac, t_cell):
+    """Steps used by the waterfall (daylight, POA, T_cell and meter known) as a Series, and the
+    same as a frame with one column per inverter."""
+    scope = (inputs["daylight"] & inputs["poa_wm2"].notna() & t_cell.notna()
+             & inputs["p_ac_meter_kw"].notna())
+    scope_2d = pd.DataFrame(np.repeat(scope.to_numpy()[:, None], ac.shape[1], axis=1),
+                            index=ac.index, columns=ac.columns)
+    return scope, scope_2d
+
+
+def channel_loss_flag(s_known_kwh, meter_at_ac_kwh, index, tolerance):
+    """True on every step of a local day whose sum(inverters) / meter is below 1 - tolerance.
+
+    s_known_kwh: energy the inverter channels report per step; meter_at_ac_kwh: meter energy
+    brought to inverter-AC level (x inv_to_meter). Both on the waterfall scope.
+    """
+    day = _period(index, "D")
+    ratio = s_known_kwh.groupby(day).transform("sum") / meter_at_ac_kwh.groupby(day).transform("sum")
+    return (ratio < 1 - tolerance).fillna(False)
+
+
 def loss_waterfall(inputs, ac, t_cell, config, gamma=None, freq="Y"):
     """Waterfall in kWh per local period (rows), one column per step.
 
@@ -65,9 +86,7 @@ def loss_waterfall(inputs, ac, t_cell, config, gamma=None, freq="Y"):
     meter = inputs["p_ac_meter_kw"]
 
     # Scope: the same steps for every quantity of the waterfall.
-    scope = inputs["daylight"] & poa.notna() & t_cell.notna() & meter.notna()
-    scope_2d = pd.DataFrame(np.repeat(scope.to_numpy()[:, None], n, axis=1),
-                            index=ac.index, columns=ac.columns)
+    scope, scope_2d = waterfall_scope(inputs, ac, t_cell)
 
     # --- model side: one inverter block, then x n inverters --------------------------------
     p0 = inverter_dc_kw(config)
@@ -109,9 +128,7 @@ def loss_waterfall(inputs, ac, t_cell, config, gamma=None, freq="Y"):
     diff = meter_kwh * k - s_known                              # what the meter sees on top
 
     # Daily test: low sum(inverters) / meter => channels lose energy (zeros while running).
-    day = _period(inputs.index, "D")
-    ratio = s_known.groupby(day).transform("sum") / (meter_kwh * k).groupby(day).transform("sum")
-    channel_day = (ratio < 1 - cfg["channel_tolerance"]).fillna(False)
+    channel_day = channel_loss_flag(s_known, meter_kwh * k, inputs.index, cfg["channel_tolerance"])
     w["channel_credit"] = -diff.where(channel_day, 0.0)
     w["reconciliation"] = -diff.where(~channel_day, 0.0)
     w["metered_kwh"] = meter_kwh
@@ -169,3 +186,55 @@ CAUSES = {
 def by_cause(table):
     """Waterfall steps summed into the groups of CAUSES (kWh)."""
     return pd.DataFrame({name: table[cols].sum(axis=1) for name, cols in CAUSES.items()})
+
+
+def availability_revised(inputs, ac, t_cell, config, gamma=None, freq="Y"):
+    """Availability corrected for lost data channels (Phase 2 KPI, revised after Phase 3).
+
+    The time-based availability of Phase 2 counts every inverter that reports ~0 as stopped. On
+    days when the meter sees more energy than the inverter channels report (channel-loss days of
+    the waterfall) part of those zeros are lost data, not stops, and which inverter lies cannot
+    be read from the files. So three numbers per period:
+    - availability_time_raw    all zeros are real stops (identical to kpi_table, a LOWER bound);
+    - availability_time_upper  apparent stops on channel-loss days leave the denominator (an
+                               UPPER bound: real stops of those days are dropped as well);
+    - availability_energy      central: 1 - (downtime + channel credit) / expected energy of the
+                               waterfall, i.e. the stop energy the meter confirms. Energy-weighted,
+                               not time-weighted. The credit is the energy the missing channels
+                               would have reported at their MEASURED level, so the running
+                               shortfall of those inverters (~10 % of their expected energy) stays
+                               in the stop energy: a small bias towards lower availability.
+    channel_days is the number of channel-loss local days in the period.
+    """
+    gamma = weighted_gamma(config) if gamma is None else gamma
+    poa = inputs["poa_wm2"]
+    dt = step_hours(inputs.index)
+
+    # Channel-loss days: the same test as in the waterfall, on the waterfall scope.
+    scope, scope_2d = waterfall_scope(inputs, ac, t_cell)
+    s_known = ac.where(ac.notna() & scope_2d).sum(axis=1) * dt
+    meter_at_ac = (inputs["p_ac_meter_kw"] * dt).where(scope, 0.0) * config["losses"]["inv_to_meter"]
+    flag = channel_loss_flag(s_known, meter_at_ac, inputs.index, config["losses"]["channel_tolerance"]) & scope
+    day = _period(inputs.index, "D")
+    channel_day_step = flag.groupby(day).transform("max")       # every step of a flagged day
+
+    known, down = inverter_states(ac, poa, config)              # POA > 50 W/m2, as in kpi_table
+    on_channel_day = pd.DataFrame(np.repeat(channel_day_step.to_numpy()[:, None], ac.shape[1], axis=1),
+                                  index=ac.index, columns=ac.columns)
+    period = _period(inputs.index, freq)
+    n_known = known.sum(axis=1).groupby(period).sum()
+    n_down = down.sum(axis=1).groupby(period).sum()
+    n_known_up = (known & ~(down & on_channel_day)).sum(axis=1).groupby(period).sum()
+    n_down_up = (down & ~on_channel_day).sum(axis=1).groupby(period).sum()
+
+    w = loss_waterfall(inputs, ac, t_cell, config, gamma, freq=freq)
+    flag_day = flag.groupby(day).max()                           # one bool per local day
+    channel_days = flag_day.groupby(flag_day.index.asfreq(freq)).sum()
+    out = pd.DataFrame({
+        "availability_time_raw": 1 - n_down / n_known,
+        "availability_time_upper": 1 - n_down_up / n_known_up,
+        "availability_energy": 1 - (w["downtime"] + w["channel_credit"]) / w["expected_kwh"],
+        "channel_days": channel_days,
+    })
+    out.index.name = "local_period"
+    return out.loc[w.index]
