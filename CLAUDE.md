@@ -267,9 +267,26 @@ README results).
   markers need `marker.color`; categories are ordered by first appearance across traces.
 - README is rewritten as a case study (result paragraph, table in USD, what the audit found,
   "What I could not explain", how to read USD figures, QA findings, method, dashboard, reproduce).
-  Open: dashboard screenshots (taken by the user, none exist yet), the Streamlit Cloud URL (placeholder
-  comment at the top of the README), tag v1.0 only on request. Check the charts visually after
-  any chart change: the environment has no browser, so layout is checked by the user's screenshots.
+  Check the charts visually after any chart change: the environment has no browser, so layout is
+  checked by the user's screenshots.
+
+### Where we stopped (end of chat 7, 2026-10-25)
+State: Phase 6 built, 85 tests pass, everything committed and pushed (`main` = `origin/main`,
+last commit `b7de86d`). Tag `v0.1-mvp` stays on `ae8fb82`.
+Waiting on the user (only she can do these, no browser / Streamlit account here):
+1. **Deploy** on share.streamlit.io: repo `owl-solar/pv-loss-auditor`, branch `main`, main file
+   `app/Home.py`, Python 3.13, no secrets. It installs `app/requirements.txt` (6 packages); the first
+   deploy is the first clean-install test of it. If it fails, ask for the log text; likely places:
+   package versions (pandas 3.1.0, numpy 2.5.4) or the Python version.
+2. **Screenshots** into `reports/figures/`: `dashboard_summary.png`, `dashboard_waterfall.png`,
+   `dashboard_downtime.png`, `dashboard_anomalies.png`.
+3. **The public URL** (`https://….streamlit.app`).
+Then (me): put the URL in place of the HTML comment at the top of the README, add the screenshots to
+the "Dashboard" section, commit (summary first, push only after "yes").
+Decided NOT to do now: **tag v1.0** (only when she asks; she said not now) and the **inv30
+event-window question** (widening `anomalies.synthetic.exclude_inverter` for 2020-08-21 … 09-21 is a
+methodological choice: propose options first). Station 1200 (scalability check) is not part of this
+version either.
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (PVWatts DC / inverter and temperature functions called directly, not
