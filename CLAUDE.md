@@ -143,8 +143,8 @@ parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use
   at −0.28; inverters 29–40 slightly flatter (−0.30 vs −0.35), not conclusive.
 
 ## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
-`notebooks/03_loss_waterfall.ipynb`, `src/losses.py`, `tests/test_losses.py` (run without pytest:
-call the `test_*` functions), `losses:` in the config. Decisions (taken with me, options first):
+`notebooks/03_loss_waterfall.ipynb`, `src/losses.py`, `tests/` (`python -m pytest`, synthetic
+data only), `losses:` in the config. Decisions (taken with me, options first):
 - Sequential cascade in physical order: nominal (P0·G/1000) → temperature (γ nameplate, T_ref
   25 °C) → design DC losses → inverter efficiency → clipping (= expected) → downtime → AC unknown
   → channel credit → running shortfall → meter reconciliation → after inverters (= meter 2).
