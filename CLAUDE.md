@@ -97,21 +97,44 @@ NREL "Wrong mounting config" flag not supported. All 40 inverters clip at 825–
 Sum of inverters / meter 2 = 1.022.
 
 ## Open questions
-- AC offset 5–10 min earlier than irradiance offset on clear days: interval labelling or AC curve
-  shape? Check with clear-day profiles (Phase 1, section 3).
-- Inverter 01 reports 0 kW from late Feb to mid-Apr 2023: downtime candidate for Phase 3.
-- Which POA sensors define PR (Phase 2): cells 04 / 10 agree within 2 %, cell 01 reads 3.5–5.4 %
-  low; pyranometer 02B reads 4.5–6.2 % above cells 04 / 10 and 10.2 % above cell 01 on clear steps.
+- **Downtime vs data loss (Phase 3, methodological choice, propose options first).** Sum of
+  inverters / meter 2 is 1.00–1.03 until 2022-11 (outages real), 0.97–0.99 in 2022-12 / 2023-01,
+  0.76–0.95 from 2023-02 (0.886 for 2023): part of the 2023 inverter zeros are channels reporting
+  0 while the inverter runs. Inverter-based availability / PR incl. downtime are understated in
+  2023; meter PR (C) 2023 = 0.581 vs 0.514 from inverter channels.
+- Inverters fail in pairs (39+40, 23+24, 37+38, 11+12, 17+18, 35+36): shared equipment?
+  Plant-wide partial outages in 2020-12 / 2021-01, 2022-05, 2022-10: grid or plant-level?
+- Inverter 01 reports 0 kW from late Feb to mid-Apr 2023 (inverters 01–06 down 2022-12 … 2023-04).
 - Clear-day AC of inverter 01 sometimes drops to 0 at midday or holds ~0.19 of rating in the
   evening: downtime / curtailment candidates for Phase 3.
-- 9069 module γ = −0.28 %/°C for the 295 W multi-Si module (typical −0.40…−0.45). Check in Phase 2.
-- 9069 POA after 2022-05: class-A pyranometers are gone (02B: 0 % from 2022-06; 08: 0 % from
-  2020-09; GHI pyranometer 12: 0 % from 2022-04), so PR will rely on reference cells 01 / 04 / 10.
-  Reference cells and pyranometers differ in spectral and angle-of-incidence response, so check
-  cell drift against pyranometer 02B over 2020-07 … 2022-04 (02B is 60–100 % there; 0 % in
-  2020-05, 50 % in 2022-05) and document the result in Phase 2.
 - Inverter AC peaks of 839–854 kW (up to 3.5 % above 825 kW) exist outside clear days; not
   flagged (limit 105 %). Check what they are when analysing clipping in Phase 3.
+- Running inverters at 0.935 / 0.918 / 0.919 / 0.886 of the model (2020–2023): break down in
+  Phases 3–4; the 2023 step (≈ 3 %) is real, not a sensor effect.
+- PR (C) dips to 0.71–0.73 in November–December: low-sun effects (row shading, AOI)? Phase 3.
+- Cells 04 / 10 vs pyranometer 02B: YoY −0.6 / −1.0 %/yr (10 pairs, not separable from 0), looks
+  like a −1.5 % step around 2021-02, not gradual ageing. Not corrected; carry ±1 %/yr as
+  uncertainty into the degradation rate (Phase 4).
+
+## Expected yield and KPIs of 9069 (Phase 2 done)
+`notebooks/02_expected_yield.ipynb`, `src/model.py`, `src/kpi.py`, `src/sensor_checks.py`,
+parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use best practice"):
+- POA = mean of cells 04 / 10; T_cell = mean thermocouple 01 / 06 s1 / 10 + 3 °C × G/1000;
+  no modelled fallback (measured T on 97.7 % of daylight steps; Faiman default reads +5.8 °C).
+- Model: pvlib `pvwatts_dc` (967.2 kW per inverter, γ = DC-weighted nameplate −0.416 %/°C) ×
+  (1 − 6.34 % design DC losses: LID 1.5, mismatch 2, wiring 1.5, connections 0.5, nameplate 1)
+  → `pvlib.inverter.pvwatts` (η_nom 0.98), clipped at 825 kW. Not calibrated on the data.
+- PR at inverter-step level, ratio of sums; variants A raw / B T_ref 25 °C / C T_ref 41.5 °C
+  (POA-weighted mean T_cell of the period), each with and without downtime, plus meter PR (C).
+  C for trends and the waterfall, B for STC / contract comparisons. B and C remove the seasonal
+  swing of A (monthly std 0.034 → 0.019 / 0.018). PR (C) of running inverters 0.762 (2020–2022),
+  0.735 (2023); annual PR (C) changes ≤ 0.002 between γ −0.28 and −0.416.
+- Availability time-based: down = AC < 1 % of rating at POA > 50 W/m²; unknown AC leaves the
+  denominator. 0.957 / 0.966 / 0.830 / 0.692 (2020–2023, 2023 understated, see open questions).
+- Closed: AC lead of ~7 min is curve shape (temperature), not a clock error (morning −14 min,
+  afternoon 0 min; after temperature correction both within ±2 min); no time shift applied.
+  Measured γ −0.34 ± 0.04 %/°C per inverter (flattened by regression dilution), no inverter group
+  at −0.28; inverters 29–40 slightly flatter (−0.30 vs −0.35), not conclusive.
 
 ## Clean dataset of 9069 (Phase 1 done)
 `data/processed/9069/9069_clean_<YYYY-MM>.parquet` (UTC months, 5-min UTC index, values as
@@ -121,7 +144,8 @@ ambient temperature station 01 (03 / 06 / 10 hold values 20–27 % of daylight);
 Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stale).
 
 ## Stack and methodological decisions
-- Python, pandas, pvlib (ModelChain, temperature and inverter models), **pvanalytics** (data QA, clipping detection), **RdTools** (YoY degradation, SRR soiling), scikit-learn, plotly, Streamlit.
+- Python, pandas, pvlib (PVWatts DC / inverter and temperature functions called directly, not
+  ModelChain, so every step is visible), **pvanalytics** (data QA, clipping detection), **RdTools** (YoY degradation, SRR soiling), scikit-learn, plotly, Streamlit.
 - KPIs: temperature-corrected Performance Ratio (IEC 61724-1 approach), specific yield, availability.
 - Anomaly detection: Isolation Forest on **residuals** (actual minus pvlib model), not on raw power.
 - Compare PR computed with on-site POA vs Open-Meteo irradiance and discuss the difference.
