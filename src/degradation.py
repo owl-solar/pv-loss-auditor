@@ -253,4 +253,4 @@ def shortfall_split(daily, soiling_pct, aoi_pct):
     split["aoi_upper_bound_pct"] = aoi_pct
     split["unexplained_min_pct"] = split["shortfall_pct"] - soiling_pct - aoi_pct
     split["unexplained_max_pct"] = split["shortfall_pct"] - soiling_pct
-    return split
+    return split.rename_axis("year")
