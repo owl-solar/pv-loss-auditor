@@ -9,5 +9,6 @@
   },
   "price_source": "Georgia Power Company 2025 Avoided Cost and Solar Avoided Cost Projections, filed with the Georgia PSC on 2025-06-27 (filing #223157, dockets 4822 and 16573), workbook sheet \"Proposed_AC Projections (Int)\". https://psc.ga.gov/search/facts-document/?documentId=223157",
   "t_ref_c": 41.477804508342174,
+  "gamma_pct_per_c": -0.41630657708628005,
   "design_dc_losses_pct": "6.34 (assumption, no PVsyst report)"
 }

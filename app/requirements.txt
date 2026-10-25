@@ -1,0 +1,9 @@
+# Dependencies of the deployed dashboard only (Streamlit Community Cloud reads this file next to
+# the entry point app/Home.py). The analysis pipeline needs the full ../requirements.txt.
+# Versions are the ones in ../requirements.txt, where the app was developed and tested.
+streamlit==1.66.1
+plotly==7.1.0
+pandas==3.1.0
+numpy==2.5.4
+pyarrow==26.0.0
+pyyaml==6.0.3

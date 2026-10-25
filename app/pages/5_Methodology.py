@@ -9,7 +9,6 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # `common` lives in app/
 import common  # noqa: E402
 from src.config import load_config  # noqa: E402
-from src.model import weighted_gamma  # noqa: E402
 
 st.set_page_config(page_title="Methodology · PV Loss Auditor", page_icon="☀️", layout="wide")
 config = load_config(common.ROOT / "configs" / "system_9069.yaml")
@@ -59,7 +58,7 @@ st.markdown("**QA findings that change the numbers:**\n"
 
 # --- expected yield --------------------------------------------------------------------------
 st.header("Expected generation")
-gamma = weighted_gamma(config) * 100
+gamma = info["gamma_pct_per_c"]
 losses = pd.Series(config["model"]["dc_losses_pct"]).rename("%")
 left, right = st.columns([3, 2])
 left.markdown(

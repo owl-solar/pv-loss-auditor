@@ -30,10 +30,8 @@ import numpy as np
 import pandas as pd
 
 from src.kpi import _period, inverter_states, step_hours
+from src.loss_groups import CAUSES, STEPS, by_cause  # noqa: F401  (re-exported: losses.STEPS etc.)
 from src.model import dc_loss_fraction, expected_power, inverter_dc_kw, weighted_gamma
-
-STEPS = ["temperature", "dc_losses", "inverter", "clipping", "downtime", "unknown_ac",
-         "channel_credit", "running_shortfall", "reconciliation", "after_inverters"]
 
 
 def inverter_ac_unclipped(p_dc_kw, config):
@@ -172,20 +170,6 @@ def dc_loss_sensitivity(inputs, ac, t_cell, config, gamma=None):
         check_closure(t)
         rows[total] = t[["dc_losses", "downtime", "running_shortfall"]].sum()
     return pd.DataFrame(rows).T.rename_axis("dc_loss_pct")
-
-
-# Presentation groups: columns of the waterfall table -> cause shown to a reader.
-CAUSES = {
-    "design (temperature, DC, inverter, clipping)": ["temperature", "dc_losses", "inverter", "clipping"],
-    "downtime (net of channel loss)": ["downtime", "unknown_ac", "channel_credit"],
-    "running shortfall": ["running_shortfall"],
-    "after inverters, meter reconciliation": ["after_inverters", "reconciliation"],
-}
-
-
-def by_cause(table):
-    """Waterfall steps summed into the groups of CAUSES (kWh)."""
-    return pd.DataFrame({name: table[cols].sum(axis=1) for name, cols in CAUSES.items()})
 
 
 def availability_revised(inputs, ac, t_cell, config, gamma=None, freq="Y"):

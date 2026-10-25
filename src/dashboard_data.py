@@ -6,7 +6,7 @@ No Streamlit here, so every number the app shows can be tested. Input is the exp
 
 import pandas as pd
 
-from src.losses import CAUSES, STEPS, by_cause
+from src.loss_groups import CAUSES, STEPS, by_cause
 
 # Short names of the presentation groups in src/losses.CAUSES (same order).
 CAUSE_NAMES = dict(zip(CAUSES, ["Design", "Downtime", "Running shortfall", "After inverters"]))

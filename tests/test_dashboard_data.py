@@ -153,3 +153,17 @@ def test_detection_rate_pools_durations_and_keeps_the_event_counts():
     rate60, n60 = dd.detection_rate(by_cell, duration=60)
     assert rate60.loc[5, "rule"] == 1.0 and rate60.loc[5, "forest"] == 0.5 and n60.loc[5, "rule"] == 2
     assert dd.detection_rate(by_cell, criterion="f1")[0].empty             # no rows for another criterion
+
+
+def test_dashboard_modules_do_not_import_the_heavy_stack():
+    # The deployed app installs only app/requirements.txt (no pvlib, pvanalytics, boto3, scipy ...).
+    # If a dashboard module started to import them, the public app would fail on start.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = ("import sys, src.dashboard_data, src.config, src.loss_groups; "
+            "print([m for m in ('pvlib', 'pvanalytics', 'boto3', 'scipy', 'sklearn', 'rdtools') if m in sys.modules])")
+    root = Path(__file__).resolve().parent.parent
+    out = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "[]"

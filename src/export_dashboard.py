@@ -180,6 +180,7 @@ def meta(config, t_ref):
         "price_usd_per_mwh": {"base": base, "low": low, "high": high},
         "price_source": config["price"]["source"].strip(),
         "t_ref_c": float(t_ref),
+        "gamma_pct_per_c": float(weighted_gamma(config) * 100),   # DC-weighted nameplate, shown on Methodology
         "design_dc_losses_pct": "6.34 (assumption, no PVsyst report)",
     }
 
