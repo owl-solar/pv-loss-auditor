@@ -1,18 +1,14 @@
 """Tests of the loss waterfall on a synthetic day (SYNTHETIC data, only for testing the code)."""
 
-import sys
-from pathlib import Path
-
 import numpy as np
 import pandas as pd
 import pvlib
-import yaml
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from src.losses import STEPS, check_closure, inverter_ac_unclipped, loss_waterfall  # noqa: E402
-from src.model import expected_power  # noqa: E402
+from src.config import load_config
+from src.losses import STEPS, check_closure, inverter_ac_unclipped, loss_waterfall
+from src.model import expected_power
 
-CONFIG = yaml.safe_load(open(Path(__file__).resolve().parents[1] / "configs/system_9069.yaml"))
+CONFIG = load_config("configs/system_9069.yaml")
 
 
 def synthetic(n_inv=4, steps=144):

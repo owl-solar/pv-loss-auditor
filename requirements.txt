@@ -28,3 +28,6 @@ pyyaml==6.0.3            # configs/system_<id>.yaml
 # Notebooks
 jupyterlab==4.6.4
 ipykernel==7.4.0
+
+# Tests
+pytest==9.1.1
