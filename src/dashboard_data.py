@@ -89,3 +89,46 @@ def scale(kwh_table, nominal_kwh, unit, usd_per_mwh):
     if unit == "% of nominal energy":
         return kwh_table.div(nominal_kwh, axis=0) * 100, "% of nominal energy", ".1f"
     raise ValueError(f"unknown unit {unit!r}")
+
+
+# Which presentation group each waterfall step belongs to, and a reader-friendly name.
+STEP_CAUSE = {step: CAUSE_NAMES[cause] for cause, steps in CAUSES.items() for step in steps}
+STEP_LABELS = {
+    "temperature": "Temperature", "dc_losses": "Design DC losses (assumed)",
+    "inverter": "Inverter efficiency", "clipping": "Clipping",
+    "downtime": "Downtime", "unknown_ac": "Unknown AC (no channel value)",
+    "channel_credit": "Channel credit (not a loss)", "running_shortfall": "Running shortfall",
+    "reconciliation": "Meter reconciliation", "after_inverters": "After inverters (transformer, cables)",
+}
+
+
+def waterfall_bars(steps, values):
+    """Geometry of a horizontal waterfall: where every bar starts and how long it is.
+
+    steps: frame from waterfall_steps (label, kind); values: the same rows in the unit the reader
+    chose (any unit, same order). The first row is the nominal total, the last the metered total.
+    A loss moves the running level down, a negative loss (gain: cold weather, channel credit) up.
+    Returns label, cause ("Total" for the two ends), value, start, end, base (= min) and length (= |end - start|); the level
+    after the last step must equal the metered total, else ValueError.
+    """
+    values = pd.Series(list(values), index=steps.index, dtype=float)
+    rows, level = [], 0.0
+    for label, kind, value in zip(steps["label"], steps["kind"], values):
+        if kind == "total":
+            start, end = 0.0, value
+            level = value if label == "nominal" else level
+        else:
+            start, end = level, level - value
+            level = end
+        rows.append({"label": label, "cause": STEP_CAUSE.get(label, "Total"), "value": value, "start": start,
+                     "end": end, "base": min(start, end), "length": abs(end - start)})
+    bars = pd.DataFrame(rows)
+    if abs(level - bars["value"].iloc[-1]) > 1e-6 * max(1.0, abs(bars["value"].iloc[0])):
+        raise ValueError("waterfall bars do not end at the metered total")
+    return bars
+
+
+def monthly_cause_share(monthly):
+    """Loss causes per month as % of that month's nominal energy (the groups of losses.CAUSES)."""
+    c = by_cause(monthly).rename(columns=CAUSE_NAMES)
+    return c.div(monthly["nominal_kwh"], axis=0) * 100

@@ -79,3 +79,28 @@ def test_scale_units():
     assert share["Downtime"].tolist() == [5.0, 2.0]
     with pytest.raises(ValueError):
         dd.scale(kwh, nominal, "EUR", 30.0)
+
+
+def test_waterfall_bars_walk_down_and_up_and_end_at_metered():
+    steps = pd.DataFrame({"label": ["nominal", "temperature", "channel_credit", "downtime", "metered"],
+                          "kind": ["total", "loss", "loss", "loss", "total"]})
+    # 100 - 10 (loss) + 2 (a credit is negative) - 5 = 87
+    bars = dd.waterfall_bars(steps, [100.0, 10.0, -2.0, 5.0, 87.0])
+    assert bars["start"].tolist() == [0.0, 100.0, 90.0, 92.0, 0.0]
+    assert bars["end"].tolist() == [100.0, 90.0, 92.0, 87.0, 87.0]
+    assert bars["base"].tolist() == [0.0, 90.0, 90.0, 87.0, 0.0]
+    assert bars["length"].tolist() == [100.0, 10.0, 2.0, 5.0, 87.0]
+    assert bars["cause"].tolist() == ["Total", "Design", "Downtime", "Downtime", "Total"]
+    with pytest.raises(ValueError):
+        dd.waterfall_bars(steps, [100.0, 10.0, -2.0, 5.0, 80.0])       # does not end at metered
+
+
+def test_every_step_has_a_cause_and_a_label():
+    assert set(dd.STEP_CAUSE) == set(STEPS) == set(dd.STEP_LABELS)
+
+
+def test_monthly_cause_share_is_percent_of_nominal():
+    share = dd.monthly_cause_share(monthly_table())
+    # 2020-05: downtime group = 1000 + 1000 - 1000 = 1000 kWh of 100 000 nominal = 1 %
+    assert share.loc["2020-05", "Downtime"] == pytest.approx(1.0)
+    assert share.loc["2020-06", "Downtime"] == pytest.approx(5.0)
