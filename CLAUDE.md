@@ -108,12 +108,14 @@ NREL "Wrong mounting config" flag not supported. All 40 inverters clip at 825–
 Sum of inverters / meter 2 = 1.022.
 
 ## Open questions
-- **Downtime vs data loss: handled in the Phase 3 waterfall (daily meter reconciliation), but
-  inverter-based availability / PR incl. downtime stay understated in 2023** (KPI tables of
-  Phase 2 not revised): sum of inverters / meter 2 is 1.00–1.03 until 2022-11, 0.76–0.95 from
-  2023-02; which inverter reports false zeros is not recoverable from these files.
-- Inverters fail in pairs (39+40, 23+24, 37+38, 11+12, 17+18, 35+36): shared equipment?
-  Plant-wide partial outages in 2020-12 / 2021-01, 2022-05, 2022-10: grid or plant-level?
+- **Downtime vs data loss: handled in the Phase 3 waterfall (daily meter reconciliation) and for
+  the KPIs in the revision section of notebook 02 (Phase 5, see "Anomalies and outages").**
+  Sum of inverters / meter 2 is 1.00–1.03 until 2022-11, 0.76–0.95 from 2023-02; which inverter
+  reports false zeros is still not recoverable from these files, so the correction is plant-level.
+- Inverters fail in groups, not pairs (answered at data level in Phase 5): 11+12+17+18, 23+24,
+  35+36, 37+38, 39+40. Cause (shared transformer skid / feeder?) is a hypothesis, not in the files.
+  Plant-wide stops 2020-12-12, 2022-05-23, 2022-10-20 and the partial 2021-01-02: grid or plant
+  level cannot be told from the data; after each one whole groups stayed down.
 - Inverter 01 reports 0 kW from late Feb to mid-Apr 2023 (inverters 01–06 down 2022-12 … 2023-04).
 - Running inverters fall short of the model by 7.6–8.7 % of nominal energy (Phase 3). Phase 4 split
   it (see "Degradation, soiling and external weather"): soiling ~1.4 %, AOI ≤ 3 % (upper bound),
@@ -140,7 +142,12 @@ parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use
   swing of A (monthly std 0.034 → 0.019 / 0.018). PR (C) of running inverters 0.762 (2020–2022),
   0.735 (2023); annual PR (C) changes ≤ 0.002 between γ −0.28 and −0.416.
 - Availability time-based: down = AC < 1 % of rating at POA > 50 W/m²; unknown AC leaves the
-  denominator. 0.957 / 0.966 / 0.830 / 0.692 (2020–2023, 2023 understated, see open questions).
+  denominator. 0.957 / 0.966 / 0.830 / 0.692 (2020–2023). **Revised in Phase 5** (notebook 02,
+  last section; `losses.availability_revised`): energy-based, net of channel loss 0.967 / 0.971 /
+  0.838 / **0.791**, upper bound 0.977 / 0.978 / 0.845 / 0.939; quote 2023 as 0.79 (raw 0.69 is a
+  lower bound). From 2023-03 every day is a channel-loss day, so the upper bound is 1.00 there.
+  PR (C) with downtime: use the meter PR 0.717 / 0.727 / 0.622 / 0.581 (inverter-based
+  0.733 / 0.737 / 0.636 / 0.514 is understated by ~7 pp in 2023).
 - Closed: AC lead of ~7 min is curve shape (temperature), not a clock error (morning −14 min,
   afternoon 0 min; after temperature correction both within ±2 min); no time shift applied.
   Measured γ −0.34 ± 0.04 %/°C per inverter (flattened by regression dilution), no inverter group
@@ -171,7 +178,7 @@ an unexplained remainder shown as a range; ERA5 + IFS; AOI = ASHRAE b0 0.05.
 
 ## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
 `notebooks/03_loss_waterfall.ipynb`, `src/losses.py`, `tests/` (`python -m pytest`, synthetic
-data only), `losses:` in the config. Decisions (taken with me, options first):
+data only, 57 tests after Phase 5), `losses:` in the config. Decisions (taken with me, options first):
 - Sequential cascade in physical order: nominal (P0·G/1000) → temperature (γ nameplate, T_ref
   25 °C) → design DC losses → inverter efficiency → clipping (= expected) → downtime → AC unknown
   → channel credit → running shortfall → meter reconciliation → after inverters (= meter 2).
@@ -195,6 +202,36 @@ measured + `flag_*` columns; build with `python -m src.clean`), report `reports/
 Sensors to use in Phase 2: POA cells 04 / 10; module temperature thermocouples 01 / 06 s1 / 10;
 ambient temperature station 01 (03 / 06 / 10 hold values 20–27 % of daylight); wind only 45 %.
 Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stale).
+
+## Anomalies and outages of 9069 (Phase 5 done)
+`notebooks/05_anomaly_detection.ipynb`, `src/anomalies.py`, `src/synthetic_faults.py`,
+`src/outages.py`, `anomalies:` in the config. Decisions (taken with me, options first):
+- Residual = measured / expected AC per inverter, divided by the median of the running inverters
+  at the same step (removes season, weather, soiling, the 2021 and 2023 steps; steps with POA >
+  200 W/m², model < 90 % of rating, ≥ 10 peers). Healthy inverters sit at fixed offsets 0.96 …
+  1.05 from their peers, so features are deviations from the inverter's own 121-day norm.
+- Detectors: Isolation Forest (4 and 2 features) and a plain rule (daily median below k robust
+  sigmas, sigma from the REAL data: from the injected table it is inflated). Threshold chosen on
+  2020–2021, reported on 2022–2023; **main criterion = false-alarm budget ≤ 1 % of clean
+  inverter-days** (max F1 hit the grid edge twice and gave 7–18 % false alarms). Event detected
+  = ≥ 3 flagged days.
+- SYNTHETIC string faults (config `anomalies.synthetic`, seed 9069): k = 1, 2, 3, 5, 10, 20, 40
+  strings of 170 per inverter (170 is derived: 967 kW / (19 × 0.300 kW); metadata string counts
+  are wrong), 21 and 60 days, abrupt, constant, applied to AC; 168 events, 62 in the test years.
+  Real events (inv30 2020-09-22…11-04, inv13 2021-11-19…12-15, plant-wide stops) are excluded.
+- Results (test years, 1 % budget): rule finds 50 % of events at precision 0.91, forest 16–18 %
+  at 0.57–0.59. **Practical detection limit about 10 strings (≈ 6 % of an inverter)**; of 30
+  events with 1–5 strings only 2 found. The idea that noisy features dilute the forest is NOT
+  supported (2 features no better). Real inv30: rule 38 of 41 days, forests 1–3; inv13: all 7 of 7.
+- Limits to state with any number: faults are synthetic, abrupt and AC-side; 62 test events in
+  14 cells (1–7 each); precision depends on the 16 % injected days; own norm absorbs slow drift
+  and faults longer than ~60 days (the 61-day window missed the real 45-day inv30 event); the
+  5-minute localisation level was not built; the 2023 step is plant-wide and cannot appear in a
+  peer-normalised residual.
+- Outages (`src/outages.py`): stops are real (meter agrees, sum/meter ≈ 1.00) in 2021-10…12 and
+  2022-05-23…12-10 (inverters 23, 24, 35–40 for 149 days); in 2021-01 and 2022-12…2023-11 the
+  ratio is 0.80–0.91 with 8–14 inverters "stopped": a substantial share are lost channels.
+  A fault of a single string is below the noise (1 string = 0.59 %, robust noise 0.68 %).
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (PVWatts DC / inverter and temperature functions called directly, not
