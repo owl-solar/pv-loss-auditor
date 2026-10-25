@@ -16,10 +16,12 @@ from pathlib import Path
 
 import pandas as pd
 
+from src import anomalies as an
 from src import degradation as dg
 from src import kpi, losses, openmeteo as om, outages, prices
 from src.config import load_config
 from src.model import cell_temperature, load_inputs, weighted_gamma
+from src.synthetic_faults import inject_faults, plan_faults
 
 OUT_DIR = Path("app/data")
 
@@ -108,6 +110,67 @@ def degradation_tables(inputs, ac, t_cell, config):
     return out
 
 
+def anomaly_tables(inputs, ac, t_cell, config):
+    """Phase 5: detector comparison on SYNTHETIC string faults and the real events.
+
+    Same steps as notebooks/05_anomaly_detection.ipynb. Everything that depends on the injected
+    faults carries synthetic=True; the real events are flags of the same detectors on real days.
+    """
+    A = config["anomalies"]
+    feat = an.daily_features(an.relative_residual(inputs, ac, t_cell, config), config)
+    x_real = an.own_norm_features(feat, config)
+    sigma = an.robust_sigma(x_real["dev_rel_median"])         # sigma of the REAL data, no faults
+
+    events = plan_faults(feat["rel_median"].unstack().notna(), config)
+    ac_synth = inject_faults(ac, events)                      # a copy: the real ac is untouched
+    feat_s = an.daily_features(an.relative_residual(inputs, ac_synth, t_cell, config), config)
+    x = an.own_norm_features(feat_s, config)
+    labels = an.day_labels(x.index, events, config)
+    results, split = an.run_detectors(x, labels, events, config, sigma)
+
+    out = {}
+    out["anomaly_summary"] = an.summary_table(results).assign(synthetic=True)
+    out["anomaly_by_cell"] = an.detection_by_cell(results).assign(synthetic=True)
+    tuning = [t.assign(criterion=c, detector=name) for c, by_det in results.items()
+              for name, (t, *_rest) in by_det.items()]
+    out["anomaly_tuning"] = pd.concat(tuning, ignore_index=True).assign(synthetic=True)
+
+    where = pd.Series("dropped (straddles the split)", index=events.index)
+    where[split["ev_tune"].index] = "tuning"
+    where[split["ev_test"].index] = "test"
+    out["anomaly_events"] = events.assign(duration_days=(events.end - events.start).dt.days + 1,
+                                          set=where, synthetic=True)
+
+    # Real events found in the daily residuals (config: anomalies.synthetic.exclude_inverter).
+    flags = {name: v[4] for name, v in results["far"].items()}
+    real = [e for e in A["synthetic"]["exclude_inverter"] if e["inverter"] in ("p_ac_inv30_kw", "p_ac_inv13_kw")]
+    windows = [(e["inverter"], e["start"], e["end"]) for e in real]
+    out["anomaly_real_events"] = an.flags_in_windows(flags, windows)
+    excluded = (split["lab"] == "excluded").to_numpy()
+    out["anomaly_excluded_flag_share"] = pd.DataFrame(
+        {"detector": list(flags), "flagged_share": [float(f[excluded].mean()) for f in flags.values()],
+         "rows": int(excluded.sum())})
+
+    # Inverter 30, the real event of 2020-09-22 ... 11-04: deviation from own norm and the flags.
+    idx = x.index.get_level_values
+    m = (idx("inverter") == "p_ac_inv30_kw") & (idx("date") >= "2020-07-01") & (idx("date") <= "2021-01-31")
+    inv30 = x.loc[m, ["dev_rel_median"]].droplevel("inverter")
+    for name in ("rule (baseline)", "forest, 4 features"):
+        inv30["flag " + name] = flags[name][m].droplevel("inverter")
+    out["anomaly_inv30"] = inv30
+
+    # Noise of the real data in the units a reader can compare with a fault.
+    n_str = A["synthetic"]["strings_per_inverter"]
+    out["anomaly_noise"] = pd.DataFrame([{
+        "robust_sigma": sigma, "rows": len(x_real), "std": float(x_real["dev_rel_median"].std()),
+        "strings_per_inverter": n_str, "one_string_pct": 100 / n_str,
+        "three_sigma_strings": 3 * sigma * n_str,
+        "events": len(events), "events_test": len(split["ev_test"]),
+        "clean_days_test": int(results["far"]["rule (baseline)"][2]["clean_days"]),
+        "far_max": A["forest"]["far_max"], "tune_until": A["forest"]["tune_until"]}])
+    return out
+
+
 def meta(config, t_ref):
     """Scalars the app shows next to the numbers: price assumption, period, T_ref."""
     base, low, high = prices.price_usd_per_mwh(config)
@@ -148,6 +211,7 @@ def main():
     tables.update(kpis)
     tables.update(outage_tables(inputs, ac, config))
     tables.update(degradation_tables(inputs, ac, t_cell, config))
+    tables.update(anomaly_tables(inputs, ac, t_cell, config))
 
     out = Path(args.out)
     sizes = write_tables(tables, out)
