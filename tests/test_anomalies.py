@@ -73,3 +73,13 @@ def test_daily_features_and_own_norm():
     dev = deviation_from_own_norm(daily)
     assert dev["A"].abs().max() < 1e-9             # static offset is not an anomaly
     assert np.isclose(dev["B"].iloc[85], -0.05)    # the change against its own norm is
+
+
+def test_daily_features_count_only_valid_steps():
+    inputs, ac, t_cell = synthetic()
+    ac["p_ac_inv03_kw"] *= 0.90                    # rel = 0.90 on every valid step
+    ac.loc[ac.index[88:], "p_ac_inv03_kw"] = np.nan    # 200 of 288 steps unknown; 88 left on 06-01
+    feat = daily_features(relative_residual(inputs, ac, t_cell, CONFIG), CONFIG)
+    row = feat.loc[(pd.Timestamp("2021-06-01"), "p_ac_inv03_kw")]
+    assert row["n_steps"] == 88                    # NaN steps are not counted
+    assert row["frac_below95"] == 1.0              # and do not dilute the share

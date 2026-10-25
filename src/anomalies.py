@@ -49,7 +49,8 @@ def daily_features(rel, config):
     n_steps      number of valid steps; rows below min_day_steps are dropped.
     """
     day = rel.index.tz_convert("America/New_York").normalize().tz_localize(None)
-    long = rel.stack().rename("rel").reset_index()
+    # pandas >= 3 keeps NaN in stack(); drop them, or n_steps and frac_below95 count unusable steps
+    long = rel.stack().dropna().rename("rel").reset_index()
     long.columns = ["time", "inverter", "rel"]
     long["date"] = day[rel.index.get_indexer(long["time"])]
     g = long.groupby(["date", "inverter"])["rel"]
