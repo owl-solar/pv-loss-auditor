@@ -21,7 +21,9 @@ This is project 1 of a chain:
 - **NREL PVDAQ** via OEDI public S3 bucket (`oedi-data-lake/pvdaq`) + its metadata file.
   Selection criteria: ≥3 years of data, POA irradiance, module temperature, AC power,
   known tilt/azimuth/DC & AC capacity; inverter-level data preferred.
-- **Open-Meteo** historical weather as a satellite/reanalysis alternative to on-site sensors.
+- **Open-Meteo** historical weather as a reanalysis alternative to on-site sensors: ERA5 and ECMWF IFS
+  (archive API, always with explicit `models=`). The satellite API has **no coverage at 9069**; nothing
+  in the project is satellite data. A true satellite source would be NSRDB (free key) or NASA POWER.
 - **Electricity prices**: US market prices matching the plant's location and connection type:
   ISO day-ahead LMP (via `gridstatus`) for grid-connected plants in an ISO;
   utility/state commercial tariff (EIA) for behind-the-meter systems;
@@ -113,14 +115,16 @@ Sum of inverters / meter 2 = 1.022.
 - Inverters fail in pairs (39+40, 23+24, 37+38, 11+12, 17+18, 35+36): shared equipment?
   Plant-wide partial outages in 2020-12 / 2021-01, 2022-05, 2022-10: grid or plant-level?
 - Inverter 01 reports 0 kW from late Feb to mid-Apr 2023 (inverters 01–06 down 2022-12 … 2023-04).
-- Running inverters fall short of the model by 7.6–8.7 % of nominal energy (Phase 3): split it
-  into soiling / degradation / AOI and low light / design-loss error / sensor bias in Phase 4;
-  the 2023 step (≈ 3 pp above 400 W/m²) is real, not a sensor effect.
-- PR (C) dips to 0.71–0.73 in November–December: low-sun effects (row shading, AOI)? Phase 4
-  (measured / expected is only 0.71–0.83 below 200 W/m² because PVWatts is linear in irradiance).
+- Running inverters fall short of the model by 7.6–8.7 % of nominal energy (Phase 3). Phase 4 split
+  it (see "Degradation, soiling and external weather"): soiling ~1.4 %, AOI ≤ 3 % (upper bound),
+  5.4–9.6 % of expected energy stay unexplained (design-loss error / low light / age / sensors),
+  and a 2023 step of ≈ 3 pp that is not soiling, AOI or sensors: candidate for Phase 5.
+- PR (C) dips to 0.71–0.73 in November–December: AOI does NOT explain it (winter loss only
+  0.3–0.5 pp above summer). Left: row shading at low sun, low-light behaviour (PVWatts is linear in
+  irradiance: measured / expected is only 0.71–0.83 below 200 W/m²). Not resolved.
 - Cells 04 / 10 vs pyranometer 02B: YoY −0.6 / −1.0 %/yr (10 pairs, not separable from 0), looks
   like a −1.5 % step around 2021-02, not gradual ageing. Not corrected; carry ±1 %/yr as
-  uncertainty into the degradation rate (Phase 4).
+  uncertainty into the degradation rate (done in Phase 4; ERA5 confirms no cell drift).
 
 ## Expected yield and KPIs of 9069 (Phase 2 done)
 `notebooks/02_expected_yield.ipynb`, `src/model.py`, `src/kpi.py`, `src/sensor_checks.py`,
@@ -141,6 +145,29 @@ parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use
   afternoon 0 min; after temperature correction both within ±2 min); no time shift applied.
   Measured γ −0.34 ± 0.04 %/°C per inverter (flattened by regression dilution), no inverter group
   at −0.28; inverters 29–40 slightly flatter (−0.30 vs −0.35), not conclusive.
+
+## Degradation, soiling and external weather of 9069 (Phase 4 done)
+`notebooks/04_degradation_soiling.ipynb`, `src/degradation.py`, `src/openmeteo.py`,
+`degradation:` in the config; Open-Meteo cache in `data/raw/openmeteo/` (0.9 MB, not committed).
+Decisions (taken with me, options first): RdTools fed with both normalized energy (measured /
+PVWatts expected) and PR (C), running inverters only; shortfall split by per-factor estimates plus
+an unexplained remainder shown as a range; ERA5 + IFS; AOI = ASHRAE b0 0.05.
+- Day filters (my assumptions): ≥ 90 % usable inverter-steps, ≥ 50 % of them running, ≥ 2 kWh/m² POA
+  → 1093 of 1309 days. Normalized energy median 0.902 / 0.890 / 0.895 / 0.865 (2020–2023).
+- Degradation (YoY): before 2023 −0.5 … −1.3 %/yr depending on the filters (RdTools CI ±0.3 does not
+  include that choice); with 2023 −1.6 … −2.0 %/yr = a step, not ageing. State "about −1 %/yr ±
+  0.5 before 2023", never a single decimal. The two series agree within 0.1 pp.
+- Soiling (SRR): 1.4 % with ERA5 rain ≥ 2 mm as cleaning (1.1–1.6 % for 1–5 mm); 2.7 % without rain
+  data is an overestimate (noise taken as cleanings). Only 10 of 27 intervals valid. Same value
+  before 2023, so soiling does not explain the 2023 step.
+- External weather vs cells 04 / 10: POA +1.6 % (ERA5) / +2.0 % (IFS) at > 200 W/m², hourly nRMSE
+  22 %, monthly +3…6 %; raw PR from Open-Meteo 2–6 pp below the cells. 12-month ratio ERA5 / cells
+  flat (1.058 → 1.056): no cell drift, 2023 step not a sensor effect. IFS rises (→ 1.089), probably
+  ECMWF model versions (hypothesis). Winter ratio +10…+19 %, summer −4…+4 %: cause not separable.
+- AOI ≤ 3.0 % of POA (1.8–4.1 for b0 0.03–0.07), flat over seasons and years; upper bound because
+  the reference cells also lose to reflection.
+- Unexplained shortfall (% of expected): 5.4–9.6 (2020–22), 9.2–12.2 (2023). Open-Meteo hourly
+  data are means of the PRECEDING hour (labels at hour end).
 
 ## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
 `notebooks/03_loss_waterfall.ipynb`, `src/losses.py`, `tests/` (`python -m pytest`, synthetic
