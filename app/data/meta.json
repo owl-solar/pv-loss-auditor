@@ -1,0 +1,13 @@
+{
+  "plant": "Simon Solar Farm (Social Circle, GA), PVDAQ 9069",
+  "dc_kw": 38687,
+  "ac_kw": 33000,
+  "price_usd_per_mwh": {
+    "base": 30.189211992617267,
+    "low": 21.132448394832085,
+    "high": 39.245975590402445
+  },
+  "price_source": "Georgia Power Company 2025 Avoided Cost and Solar Avoided Cost Projections, filed with the Georgia PSC on 2025-06-27 (filing #223157, dockets 4822 and 16573), workbook sheet \"Proposed_AC Projections (Int)\". https://psc.ga.gov/search/facts-document/?documentId=223157",
+  "t_ref_c": 41.477804508342174,
+  "design_dc_losses_pct": "6.34 (assumption, no PVsyst report)"
+}
