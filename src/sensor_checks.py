@@ -132,3 +132,23 @@ def yoy_drift(daily):
     if not pairs:
         return np.nan, np.nan, np.nan, 0
     return float(np.median(pairs)), float(np.min(pairs)), float(np.max(pairs)), len(pairs)
+
+
+def plateau_steps(ac_raw, rating_kw, min_steps=6, tol_kw=0.5, lo=0.05, hi=0.98):
+    """Boolean frame: steps inside a run of >= min_steps nearly constant AC values.
+
+    A curtailment (power limit) holds the output on a level below the rating while the sun
+    changes; clipping sits at ~the rating (hi) and zeros are downtime (lo). A step belongs to a
+    run if it differs from the previous one by less than tol_kw. Unlike the stuck-value test of
+    the cleaning (identical values), a small tolerance also catches plateaus with noise.
+    """
+    same = ac_raw.diff().abs() < tol_kw                       # step equals the previous one
+    in_band = (ac_raw > lo * rating_kw) & (ac_raw < hi * rating_kw)
+    out = pd.DataFrame(False, index=ac_raw.index, columns=ac_raw.columns)
+    for col in ac_raw.columns:
+        s = same[col] & in_band[col]
+        # run id: increases whenever the condition is False; the run length is a group size
+        run_id = (~s).cumsum()
+        length = s.groupby(run_id).transform("sum")           # steps with True in this run
+        out[col] = s & (length >= min_steps - 1)              # n constant steps = n-1 equal pairs
+    return out

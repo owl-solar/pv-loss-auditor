@@ -260,3 +260,54 @@ def downtime_heatmap(down_share, title=""):
     ax.set_title(title, loc="left", fontsize=10, color=INK)
     fig.tight_layout()
     return fig
+
+
+WATERFALL_LABELS = {
+    "temperature": "temperature", "dc_losses": "design DC", "inverter": "inverter eff.",
+    "clipping": "clipping", "downtime": "downtime", "unknown_ac": "AC unknown",
+    "channel_credit": "channel credit", "running_shortfall": "running shortfall",
+    "reconciliation": "meter recon.", "after_inverters": "after inverters",
+}
+# Colour = what the step rests on: gray = model / assumption, orange = measured loss,
+# green = credit (energy that was produced but not reported by the inverter channels).
+_WATERFALL_COLOR = {"temperature": MUTED, "dc_losses": MUTED, "inverter": MUTED, "clipping": MUTED,
+                    "downtime": SERIES[1], "unknown_ac": SERIES[1], "channel_credit": SERIES[2],
+                    "running_shortfall": SERIES[1], "reconciliation": MUTED, "after_inverters": MUTED}
+
+
+def waterfall_plot(table, steps, title=""):
+    """One waterfall per period (panel): nominal -> steps -> meter, in GWh. Needs table columns
+    nominal_kwh, metered_kwh and the loss steps (kWh, positive = loss)."""
+    n = len(table)
+    fig, axes = plt.subplots((n + 1) // 2, 2, figsize=(14, 4.6 * ((n + 1) // 2)), squeeze=False)
+    for ax, (period, row) in zip(axes.ravel(), table.iterrows()):
+        level = row["nominal_kwh"] / 1e6
+        ax.bar(0, level, color=SERIES[0])
+        for i, step in enumerate(steps, start=1):
+            loss = row[step] / 1e6
+            ax.bar(i, abs(loss), bottom=level - max(loss, 0), color=_WATERFALL_COLOR[step])
+            level -= loss
+        ax.bar(len(steps) + 1, row["metered_kwh"] / 1e6, color=SERIES[0])
+        ax.set_xticks(range(len(steps) + 2),
+                      ["nominal"] + [WATERFALL_LABELS[s] for s in steps] + ["meter"],
+                      rotation=45, ha="right", fontsize=8)
+        ax.set_ylabel("GWh", fontsize=9)
+        _style(ax, f"{title} {period}")
+    for ax in axes.ravel()[n:]:
+        ax.axis("off")
+    fig.tight_layout()
+    return fig
+
+
+def loss_causes_plot(share, title=""):
+    """Monthly losses as a share of the nominal energy, stacked by cause (columns of `share`)."""
+    colors = [MUTED, SERIES[1], SERIES[0], BLUE_RAMP[1]]
+    fig, ax = plt.subplots(figsize=(13, 4.2))
+    x = share.index.to_timestamp()
+    ax.stackplot(x, share.T.to_numpy() * 100, labels=list(share.columns), colors=colors[:share.shape[1]])
+    ax.set_ylabel("% of nominal energy", fontsize=9)
+    ax.set_ylim(0, share.sum(axis=1).max() * 100 * 1.2)   # headroom: the legend must not cover data
+    ax.legend(fontsize=8, frameon=False, loc="upper left", ncol=4)
+    _style(ax, title)
+    fig.tight_layout()
+    return fig
