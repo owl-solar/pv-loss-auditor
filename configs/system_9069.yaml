@@ -100,7 +100,7 @@ data:
         "meter_1_ac_power_(kw)_meter_151040": p_ac_meter1_kw
         "meter_2_ac_power_(kw)_meter_151053": p_ac_meter2_kw
 
-# Full-period coverage map (src/coverage.py): point reads at evenly spaced byte positions.
+# Full-period coverage map (src/pv_loss_auditor/coverage.py): point reads at evenly spaced byte positions.
 coverage:
   points_per_month: 20
   random_seed: 9069                    # stratified random offsets, reproducible
@@ -120,7 +120,7 @@ coverage:
     electrical_ac: ["^inverter_(01|10|30)_ac_power_\\(kw\\)"]
     meter: ["^meter_[12]_ac_power_\\(kw\\)"]
 
-# Full analysis period, downloaded month by month (src/pvdaq.py --period).
+# Full analysis period, downloaded month by month (src/pv_loss_auditor/pvdaq.py --period).
 # Each file is read from `start` to its end; every month goes to its own parquet file.
 period:
   start: "2020-05"            # first month; the end of each file is the end of the period
@@ -150,7 +150,7 @@ period:
     electrical_ac:             # AC power of all 40 inverters
       - {pattern: '^inverter_(\d{2})_ac_power_\(kw\)_inv_\d+$', name: "p_ac_inv{0}_kw"}
 
-# Clock of each file's naive timestamps (src/timealign.py), found in notebook 01, section 2,
+# Clock of each file's naive timestamps (src/pv_loss_auditor/timealign.py), found in notebook 01, section 2,
 # from the daily profile vs the sun position (clear days, r > 0.97), not from the time axis.
 # Label - UTC: UTC-5 in winter, UTC-4 in summer, but the switch dates differ per file.
 clock:
@@ -165,7 +165,7 @@ clock:
   reference_channel: poa_ref01_wm2   # irradiance channel used as time reference
   clear_day_min_r: 0.97
 
-# Geometry and sensor checks on clear days (src/geometry.py, notebook 01, section 3).
+# Geometry and sensor checks on clear days (src/pv_loss_auditor/geometry.py, notebook 01, section 3).
 geometry_check:
   ghi_channel: ghi_pyr12_wm2          # clear-sky detection; GHI exists only until 2022-03
   ghi_until: "2022-03-31"
@@ -179,7 +179,7 @@ geometry_check:
   grid_tilts_deg: [0, 5, 10, 15, 20, 25, 30, 35, 40]
   grid_azimuths_deg: [150, 160, 170, 180, 190, 200, 210]
 
-# Cleaning (src/clean.py, notebook 01, section 4). Values are kept as measured (in UTC); problems
+# Cleaning (src/pv_loss_auditor/data.py, notebook 01, section 4). Values are kept as measured (in UTC); problems
 # are marked in boolean flag columns, so each later phase chooses its own filter. Exceptions:
 # logger placeholders (<= -250) become NaN, small negative night irradiance becomes 0 (flagged).
 clean:
@@ -210,7 +210,17 @@ clean:
     '^wind_speed': [0, 60]
     '^wind_dir': [0, 360]
 
-# Expected-yield model (src/model.py, notebook 02). Built from nameplate data and explicit
+# Input checks (src/pv_loss_auditor/validation.py): errors stop the run, warnings go to the log.
+validation:
+  # POA below this is an error (broken sensor / wrong column). Same as clean.irradiance_min_day_wm2:
+  # small negative offsets of a healthy sensor are tolerated.
+  poa_min_wm2: -5
+  # Warn about a hole in the model inputs longer than this (the 2021 and 2022 irradiance gaps are 2-3 days).
+  max_gap_hours: 24
+  # Warn if POA is missing on more than this share of the daylight steps (9069: 1-4 % per year).
+  max_missing_share: 0.1
+
+# Expected-yield model (src/pv_loss_auditor/model.py, notebook 02). Built from nameplate data and explicit
 # design losses, NOT calibrated on the measurements: whatever the plant loses beyond these
 # (soiling, degradation, sensor bias, outages) must show up in the residual.
 model:
@@ -239,7 +249,7 @@ model:
   # reviewed, the data cannot separate it from DC losses). Output is clipped at the AC rating.
   inverter: {eta_inv_nom: 0.98, eta_inv_ref: 0.9637}
 
-# KPI definitions (src/kpi.py, notebook 02).
+# KPI definitions (src/pv_loss_auditor/kpi.py, notebook 02).
 kpi:
   meter_channel: p_ac_meter2_kw      # plant meter (sum of inverters / meter = 1.022)
   # Inverter-step with POA above this and valid AC counts toward availability.
@@ -251,7 +261,7 @@ kpi:
   # Cell drift threshold relative to the pyranometer; above it a correction is discussed.
   drift_threshold_pct_per_year: 0.5
 
-# Loss waterfall (src/losses.py, notebook 03). Decisions with the user: sequential order,
+# Loss waterfall (src/pv_loss_auditor/losses.py, notebook 03). Decisions with the user: sequential order,
 # meter-based end point, daily meter reconciliation for data-channel loss.
 losses:
   # Sum of inverters / meter 2 in 2020-2022 (outages real, channels complete): transformer and
@@ -264,7 +274,7 @@ losses:
   # Design DC-loss totals for the sensitivity table (the base 6.34 % is an assumption).
   dc_loss_sensitivity_pct: [4.0, 6.34, 8.0]
 
-# Electricity price for valuing lost energy (src/prices.py, Phase 3).
+# Electricity price for valuing lost energy (src/pv_loss_auditor/prices.py, Phase 3).
 # Connection type (decided with the user from satellite images and the data): utility-scale,
 # behind step-up transformers, next to a high-voltage substation (sum of inverters / meter 2 =
 # 1.02 = transformer losses). Georgia has no ISO / RTO, so there is no LMP (gridstatus) and the
