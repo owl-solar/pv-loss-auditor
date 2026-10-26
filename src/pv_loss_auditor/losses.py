@@ -25,6 +25,9 @@ every difference cover the same steps. Signs: positive = loss.
 """
 
 import copy
+import logging
+from collections.abc import Mapping
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -32,9 +35,12 @@ import pandas as pd
 from pv_loss_auditor.kpi import _period, inverter_states, step_hours
 from pv_loss_auditor.loss_groups import CAUSES, STEPS, by_cause  # noqa: F401  (re-exported: losses.STEPS etc.)
 from pv_loss_auditor.model import dc_loss_fraction, expected_power, inverter_dc_kw, weighted_gamma
+from pv_loss_auditor.validation import check_poa, require_aligned, require_choice, require_nonempty, require_positive
+
+log = logging.getLogger(__name__)
 
 
-def inverter_ac_unclipped(p_dc_kw, config):
+def inverter_ac_unclipped(p_dc_kw: pd.Series, config: Mapping[str, Any]) -> pd.Series:
     """PVWatts inverter AC without the clipping at the rating (kW).
 
     Same formula as pvlib.inverter.pvwatts (Driesse), which offers no switch to turn the clip
@@ -49,7 +55,8 @@ def inverter_ac_unclipped(p_dc_kw, config):
     return (eta * p_dc).clip(lower=0).fillna(0.0)
 
 
-def waterfall_scope(inputs, ac, t_cell):
+def waterfall_scope(inputs: pd.DataFrame, ac: pd.DataFrame,
+                    t_cell: pd.Series) -> tuple[pd.Series, pd.DataFrame]:
     """Steps used by the waterfall (daylight, POA, T_cell and meter known) as a Series, and the
     same as a frame with one column per inverter."""
     scope = (inputs["daylight"] & inputs["poa_wm2"].notna() & t_cell.notna()
@@ -59,7 +66,8 @@ def waterfall_scope(inputs, ac, t_cell):
     return scope, scope_2d
 
 
-def channel_loss_flag(s_known_kwh, meter_at_ac_kwh, index, tolerance):
+def channel_loss_flag(s_known_kwh: pd.Series, meter_at_ac_kwh: pd.Series, index: pd.DatetimeIndex,
+                      tolerance: float) -> pd.Series:
     """True on every step of a local day whose sum(inverters) / meter is below 1 - tolerance.
 
     s_known_kwh: energy the inverter channels report per step; meter_at_ac_kwh: meter energy
@@ -70,14 +78,28 @@ def channel_loss_flag(s_known_kwh, meter_at_ac_kwh, index, tolerance):
     return (ratio < 1 - tolerance).fillna(False)
 
 
-def loss_waterfall(inputs, ac, t_cell, config, gamma=None, freq="Y"):
+def loss_waterfall(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
+                   config: Mapping[str, Any], gamma: float | None = None, freq: str = "Y") -> pd.DataFrame:
     """Waterfall in kWh per local period (rows), one column per step.
 
     Columns: nominal_kwh, the loss steps in STEPS (kWh, positive = loss), expected_kwh,
     metered_kwh and closure_kwh (nominal - sum of steps - metered; must be ~0).
+
+    Balance, by construction of the cascade (every step is a difference of neighbouring
+    cumulative quantities):
+
+        nominal = sum(STEPS) + metered        =>   closure_kwh = nominal - sum(STEPS) - metered = 0
     """
+    require_nonempty(inputs, "inputs")
+    require_aligned(inputs, ac, ("inputs", "ac"))
+    require_aligned(inputs, t_cell, ("inputs", "t_cell"))
+    require_choice(freq, ("M", "Y", "D"), "freq")
+    check_poa(inputs["poa_wm2"], config)
     gamma = weighted_gamma(config) if gamma is None else gamma
     cfg = config["losses"]
+    require_positive(cfg["inv_to_meter"], "losses.inv_to_meter")
+    if not 0 <= cfg["channel_tolerance"] < 1:
+        raise ValueError(f"losses.channel_tolerance must be in [0, 1), got {cfg['channel_tolerance']!r}")
     n = ac.shape[1]
     dt = step_hours(inputs.index)
     poa = inputs["poa_wm2"]
@@ -136,23 +158,28 @@ def loss_waterfall(inputs, ac, t_cell, config, gamma=None, freq="Y"):
     g = g[g["nominal_kwh"] > 0]
     g["closure_kwh"] = g["nominal_kwh"] - g[STEPS].sum(axis=1) - g["metered_kwh"]
     g.index.name = "local_period"
+    log.info("waterfall: %d periods (%s), %d channel-loss steps", len(g), freq, int(w["channel_day"].sum()))
     return g
 
 
-def check_closure(table, tolerance_kwh=1.0):
+def check_closure(table: pd.DataFrame, tolerance_kwh: float = 1.0) -> None:
     """Stop if the steps do not add up to nominal - metered in any period."""
     worst = table["closure_kwh"].abs().max()
     if worst > tolerance_kwh:
         raise ValueError(f"waterfall does not close: worst period off by {worst:.1f} kWh")
 
 
-def to_usd(table_kwh, price_base, price_low, price_high):
+def to_usd(table_kwh: pd.DataFrame, price_base: float, price_low: float,
+           price_high: float) -> dict[str, pd.DataFrame]:
     """Table in kWh -> dict of tables in USD at the base price and the sensitivity band."""
+    for name, p in (("base", price_base), ("low", price_low), ("high", price_high)):
+        require_positive(p, f"price_{name} (USD/MWh)")
     return {name: table_kwh * p / 1000
             for name, p in (("base", price_base), ("low", price_low), ("high", price_high))}
 
 
-def dc_loss_sensitivity(inputs, ac, t_cell, config, gamma=None):
+def dc_loss_sensitivity(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
+                        config: Mapping[str, Any], gamma: float | None = None) -> pd.DataFrame:
     """Annual running shortfall and total losses for each assumed design DC-loss total.
 
     Mostly `dc_losses` and `running_shortfall` trade places (downtime moves slightly because it
@@ -172,7 +199,9 @@ def dc_loss_sensitivity(inputs, ac, t_cell, config, gamma=None):
     return pd.DataFrame(rows).T.rename_axis("dc_loss_pct")
 
 
-def availability_revised(inputs, ac, t_cell, config, gamma=None, freq="Y"):
+def availability_revised(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
+                         config: Mapping[str, Any], gamma: float | None = None,
+                         freq: str = "Y") -> pd.DataFrame:
     """Availability corrected for lost data channels (Phase 2 KPI, revised after Phase 3).
 
     The time-based availability of Phase 2 counts every inverter that reports ~0 as stopped. On
@@ -189,7 +218,12 @@ def availability_revised(inputs, ac, t_cell, config, gamma=None, freq="Y"):
                                shortfall of those inverters (~10 % of their expected energy) stays
                                in the stop energy: a small bias towards lower availability.
     channel_days is the number of channel-loss local days in the period.
+
+        availability_energy = 1 - (downtime + channel_credit) / expected_kwh      (waterfall columns)
+        availability_time   = 1 - down inverter-steps / known inverter-steps
     """
+    require_nonempty(inputs, "inputs")
+    require_aligned(inputs, ac, ("inputs", "ac"))
     gamma = weighted_gamma(config) if gamma is None else gamma
     poa = inputs["poa_wm2"]
     dt = step_hours(inputs.index)
