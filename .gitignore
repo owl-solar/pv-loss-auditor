@@ -24,3 +24,9 @@ Thumbs.db
 # Secrets (API keys, e.g. EIA key for price data)
 .streamlit/secrets.toml
 .env
+
+# Test / lint caches
+.coverage
+htmlcov/
+.pytest_cache/
+.ruff_cache/
