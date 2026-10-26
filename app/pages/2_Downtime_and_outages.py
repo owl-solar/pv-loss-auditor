@@ -113,7 +113,7 @@ view = pd.DataFrame(
         "reading": episodes["ratio_median"].map(dd.meter_verdict),
     }
 )
-st.dataframe(
+common.table(
     view.style.format({"median sum / meter": "{:.3f}", "p5": "{:.3f}"}), hide_index=True, width="stretch"
 )
 st.caption(
@@ -124,7 +124,7 @@ st.caption(
     "Inverter 01 reports 0 kW from late February to mid-April 2023 (inverters 01-06 down 2022-12 ... 2023-04)."
 )
 with st.expander("Which inverters (stopped / partly)"):
-    st.dataframe(
+    common.table(
         episodes[["label", "stopped", "partly"]].rename(columns={"label": "episode"}),
         hide_index=True,
         width="stretch",
@@ -143,14 +143,16 @@ fig = go.Figure(
         marker_line=dict(color=common.SURFACE, width=2),
         text=groups["days_all_down"],
         textposition="outside",
+        cliponaxis=False,  # the label of the longest bar must not be cut at the axis
         hovertemplate="inverters %{y}: all down on %{x} days<extra></extra>",
     )
 )
 fig.update_yaxes(autorange="reversed", title="inverters", type="category")
-fig.update_xaxes(title="days with all members down")
+fig.update_xaxes(title="days with all members down", range=[0, groups["days_all_down"].max() * 1.15])
 left.plotly_chart(common.style(fig, "Groups with Jaccard ≥ 0.95", height=300), width="stretch")
-right.dataframe(
-    groups.rename(
+common.table(
+    container=right,
+    data=groups.rename(
         columns={"group": "group", "min_jaccard": "weakest pair (Jaccard)", "days_all_down": "days all down"}
     ).style.format({"weakest pair (Jaccard)": "{:.3f}"}),
     hide_index=True,

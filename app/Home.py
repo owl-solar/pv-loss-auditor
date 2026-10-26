@@ -96,7 +96,7 @@ for cause in order:
 fig.update_layout(barmode="stack", yaxis_title=axis_title, xaxis_title=None)
 st.plotly_chart(common.style(fig, "Loss by cause and calendar year"), width="stretch")
 with st.expander("Values as a table (thin segments have no label in the chart)"):
-    st.dataframe(values.style.format("{:" + fmt + "}"), width="stretch")
+    common.table(values.style.format("{:" + fmt + "}"), width="stretch")
 common.design_loss_caveat()
 
 # --- KPI trend -----------------------------------------------------------------------------
@@ -182,7 +182,7 @@ table = (
     .T
 )  # years as columns: fits the page
 whole = ["channel-loss days", "specific yield, kWh/kWp"]
-st.dataframe(table.style.format("{:.3f}").format("{:.0f}", subset=pd.IndexSlice[whole, :]), width="stretch")
+common.table(table.style.format("{:.3f}").format("{:.0f}", subset=pd.IndexSlice[whole, :]), width="stretch")
 st.caption(
     "Quote 2023 availability as **0.79**: the raw 0.69 counts lost data channels as stops (lower "
     "bound); from 2023-03 every day is a channel-loss day, so the upper bound is uninformative. "

@@ -64,7 +64,7 @@ plant = pd.DataFrame(
     ],
     columns=["item", "value"],
 )
-st.dataframe(plant, hide_index=True, width="stretch")
+common.table(plant, hide_index=True, width="stretch")
 st.markdown(
     "**QA findings that change the numbers:**\n"
     "- The files use different clocks: irradiance and environment switch daylight saving time on EU dates, "
@@ -93,8 +93,11 @@ left.markdown(
     "- **Not calibrated on the data.**"
 )
 total_loss = (1 - (1 - losses / 100).prod()) * 100  # multiplicative, as pvlib.pvwatts_losses
-right.dataframe(
-    pd.concat([losses, pd.Series({"total (combined)": total_loss})]).to_frame("%").style.format("{:.2f}"),
+common.table(
+    container=right,
+    data=pd.concat([losses, pd.Series({"total (combined)": total_loss})])
+    .to_frame("%")
+    .style.format("{:.2f}"),
     width="stretch",
 )
 st.warning(

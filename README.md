@@ -199,8 +199,8 @@ No data download is needed to run the tests: a 14-day slice of the real clean da
 plant-wide stop of 12-18 December 2020) lives in `tests/fixtures/`.
 ```powershell
 py -3.13 -m venv .venv; .\.venv\Scripts\Activate.ps1      # Linux / macOS: python3.13 -m venv .venv && source .venv/bin/activate
-pip install -e ".[data,dev]"                               # the package with its pinned dependencies and test tools
-pytest                                                     # 160 tests, about 20 s
+pip install -e ".[app,data,dev]"                               # the package with its pinned dependencies and test tools
+pytest                                                     # 178 tests, about 20 s
 python -m scripts.compare_golden --run fixture             # re-run the pipeline on the fixture, compare with the golden values
 ```
 The dashboard (`pip install -e ".[app]"`, then `streamlit run app/Home.py`) reads the small exported tables in
@@ -236,7 +236,7 @@ the processed data and the cached Open-Meteo files (about 1 minute).
 
 ## Testing & CI
 
-- **160 tests, about 20 s, no network.** Physics tests with a known answer (PR = 0.85 for 1000 kWh/m² on 100 kW giving
+- **178 tests, about 20 s, no network.** Physics tests with a known answer (PR = 0.85 for 1000 kWh/m² on 100 kW giving
   85 000 kWh; night hours are not downtime; no clipping at DC/AC = 1.0 below the rating), a waterfall that must close
   for arbitrary data, `ValueError` on nonsensical inputs, and an end-to-end run on the real 14-day fixture
   against the golden values. A string fault injected into that fixture must be found by the rule and the forest.

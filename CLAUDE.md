@@ -177,7 +177,7 @@ an unexplained remainder shown as a range; ERA5 + IFS; AOI = ASHRAE b0 0.05.
   data are means of the PRECEDING hour (labels at hour end).
 
 ## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
-`notebooks/03_loss_waterfall.ipynb`, `src/pv_loss_auditor/losses.py`, `tests/` (`python -m pytest`, 160 tests after the production refactor), `losses:` in the config. Decisions (taken with me, options first):
+`notebooks/03_loss_waterfall.ipynb`, `src/pv_loss_auditor/losses.py`, `tests/` (`python -m pytest`, 178 tests after the production refactor), `losses:` in the config. Decisions (taken with me, options first):
 - Sequential cascade in physical order: nominal (P0·G/1000) → temperature (γ nameplate, T_ref
   25 °C) → design DC losses → inverter efficiency → clipping (= expected) → downtime → AC unknown
   → channel credit → running shortfall → meter reconciliation → after inverters (= meter 2).
@@ -299,7 +299,7 @@ number**. Done in 6 phases, each stopped for my "ok". Where things are:
   `validation.py` (ValueError helpers + warnings), `logs.py` (`setup_logging`, called only from `main()`).
 - All parameters in `configs/system_9069.yaml` (new section `validation:`); `load_config` checks required sections.
   A root `config.yaml` was NOT created: `configs/` stays for the secondary system 1200.
-- `tests/`: 160 tests. `tests/fixtures/9069_clean/` = 14 days (2020-12-08…21, 353 kB) of the REAL clean data, the
+- `tests/`: 178 tests. `tests/fixtures/9069_clean/` = 14 days (2020-12-08…21, 353 kB) of the REAL clean data, the
   one allowed exception to "never commit data" (public NREL data, contains the stop of 12-12…18);
   `tests/fixtures/golden_values.json` = 127 numbers on the fixture + 2240 on the full period.
   `scripts/make_fixture.py`, `capture_golden.py`, `compare_golden.py` (was / is / difference, never overwrites).
@@ -316,6 +316,11 @@ number**. Done in 6 phases, each stopped for my "ok". Where things are:
   passes in CI and pre-commit. Input checks (`ValueError`) exist in config, model, kpi, losses, anomalies, degradation,
   outages, openmeteo, prices, synthetic_faults, dashboard_data; NOT in the I/O modules (pvdaq, coverage, data cleaning,
   geometry, timealign, plots). Third-party packages without types are `Any` (`ignore_missing_imports`).
+- Dashboard look (fixed after the first deployment, from her screenshots): all tables go through `common.table()` (columns and
+  index centred via `column_config alignment`), `common.style()` anchors horizontal legends at the bottom (y = 1.02) so they sit
+  above the plot, bar labels use `cliponaxis=False` plus an axis range. `tests/test_app_pages.py` runs every page headless
+  (`streamlit.testing.v1.AppTest`: no exception, tables centred, legends above) and needs the `app` extra (CI installs it).
+  Rendering itself (overlaps) is still only checked by her screenshots: no browser here.
 - Bug found by mypy and fixed: `log.info(..., flush=True)` left over from the print -> logging conversion in pvdaq
   (would raise TypeError on the first download retry). `tests/test_logging_calls.py` checks all logging calls.
 - Not done on purpose: Streamlit changes, tag v1.0. **Decided against (portfolio project, 2026-10-26): scheduled CD and Docker.**

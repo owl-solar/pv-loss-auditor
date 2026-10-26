@@ -117,7 +117,7 @@ with st.expander("Detected / events per fault size and duration (chosen detector
         .unstack("duration_days")
     )
     table.columns = [f"{c} days" for c in table.columns]
-    st.dataframe(table.rename_axis("lost strings"), width="stretch")
+    common.table(table.rename_axis("lost strings"), width="stretch")
 
 # --- why this criterion --------------------------------------------------------------------------
 st.header("Why a false-alarm budget")
@@ -145,7 +145,7 @@ view = view.rename(
         "far": "false-alarm rate",
     }
 )
-st.dataframe(
+common.table(
     view.style.format(
         {
             "precision": "{:.2f}",
@@ -172,7 +172,7 @@ with st.expander("Tuning table (2020-2021, SYNTHETIC) of the chosen criterion"):
     t = tuning[tuning["criterion"] == "far"][
         ["detector", "param", "precision", "recall_days", "recall_events", "false_alarm_days", "far"]
     ]
-    st.dataframe(
+    common.table(
         t.style.format(
             {"precision": "{:.3f}", "recall_days": "{:.3f}", "recall_events": "{:.3f}", "far": "{:.2%}"}
         ),
@@ -234,7 +234,7 @@ show = real.assign(
 show = show[["event", "days", RULE, "forest, 4 features", "forest, 2 features"]].rename(
     columns={"days": "days with a feature"}
 )
-st.dataframe(show, hide_index=True, width="stretch")
+common.table(show, hide_index=True, width="stretch")
 inside = (inv30.index >= "2020-09-22") & (inv30.index <= "2020-11-04")
 outside_forest = inv30.index[~inside & inv30["flag forest, 4 features"].astype(bool)]
 outside_rule = inv30.index[~inside & inv30["flag rule (baseline)"].astype(bool)]

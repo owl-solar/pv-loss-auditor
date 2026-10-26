@@ -100,11 +100,30 @@ def style(fig, title=None, height=380):
         paper_bgcolor=SURFACE,
         plot_bgcolor=SURFACE,
         font=dict(color=INK_SECONDARY, size=12),
-        margin=dict(l=10, r=10, t=90 if title else 40, b=10),
+        margin=dict(l=10, r=10, t=110 if title else 50, b=10),
         # traceorder "normal": the legend reads in the order of the stack (bottom to top)
-        legend=dict(orientation="h", y=1.14, x=0, font=dict(color=INK), traceorder="normal"),
+        # yanchor "bottom": the legend sits ABOVE the plot area and grows upwards. With the default
+        # ("auto" = top for y > 2/3) it hung down from y = 1.02 and covered the curves.
+        legend=dict(
+            orientation="h", yanchor="bottom", y=1.02, x=0, font=dict(color=INK), traceorder="normal"
+        ),
         hoverlabel=dict(bgcolor="white", font_color=INK),
     )
     fig.update_xaxes(gridcolor=GRID, linecolor=GRID, zerolinecolor=GRID)
     fig.update_yaxes(gridcolor=GRID, linecolor=GRID, zerolinecolor=GRID)
     return fig
+
+
+def table(data, container=None, hide_index=False, **kwargs):
+    """st.dataframe with every column (and the index) centred, full width.
+
+    `data` is a DataFrame or a pandas Styler (number formats stay as the caller set them).
+    `container` is a Streamlit container (e.g. one of st.columns) or None for the page.
+    """
+    frame = data.data if hasattr(data, "data") else data  # a Styler keeps its frame in .data
+    centred = st.column_config.Column(alignment="center")
+    config = {} if isinstance(frame.columns, pd.MultiIndex) else {c: centred for c in frame.columns}
+    if not hide_index:
+        config["_index"] = centred
+    kwargs.setdefault("width", "stretch")
+    return (container or st).dataframe(data, column_config=config, hide_index=hide_index, **kwargs)

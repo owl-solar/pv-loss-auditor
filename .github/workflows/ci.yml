@@ -29,8 +29,8 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install the package with test tools
-        # "data" is needed because the modules import boto3 / requests at import time (no calls are made).
-        run: pip install -e ".[data,dev]"
+        # "data": the modules import boto3 / requests at import time (no calls are made); "app": the page smoke tests.
+        run: pip install -e ".[app,data,dev]"
 
       - name: Lint (ruff check)
         run: ruff check .

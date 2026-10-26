@@ -111,8 +111,9 @@ fig.update_xaxes(title="YoY degradation, %/yr")
 left.plotly_chart(common.style(fig, "Same data, 12 day-filter settings each", height=300), width="stretch")
 view = yoy.assign(series=yoy["series"].map({"energy_norm": "normalized energy", "pr_wc": "PR (C)"}))
 view = view.rename(columns={"rd_pct_yr": "rate, %/yr", "ci_low": "CI low", "ci_high": "CI high"})
-right.dataframe(
-    view.style.format({"rate, %/yr": "{:.2f}", "CI low": "{:.2f}", "CI high": "{:.2f}"}),
+common.table(
+    container=right,
+    data=view.style.format({"rate, %/yr": "{:.2f}", "CI low": "{:.2f}", "CI high": "{:.2f}"}),
     hide_index=True,
     width="stretch",
 )
@@ -186,7 +187,7 @@ st.markdown(
     "of reference cells 04 / 10. These are **reanalysis, not satellite data** (the satellite API has no "
     "coverage at this site). Open-Meteo hourly values are means of the *preceding* hour."
 )
-st.dataframe(
+common.table(
     ext_stats.rename(
         columns={
             "source": "source",
@@ -288,7 +289,7 @@ fig.update_layout(barmode="stack", yaxis_title="% of expected energy")
 st.plotly_chart(
     common.style(fig, "Shortfall = 1 − median daily measured / expected", height=380), width="stretch"
 )
-st.dataframe(
+common.table(
     split.rename(
         columns={
             "shortfall_pct": "shortfall, %",

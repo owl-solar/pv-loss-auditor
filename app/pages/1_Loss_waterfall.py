@@ -79,7 +79,7 @@ common.design_loss_caveat()
 
 with st.expander("Values as a table"):
     table = bars[["name", "cause", "value"]].rename(columns={"name": "step", "value": axis_title})
-    st.dataframe(table.style.format({axis_title: "{:" + fmt + "}"}), hide_index=True, width="stretch")
+    common.table(table.style.format({axis_title: "{:" + fmt + "}"}), hide_index=True, width="stretch")
 
 # --- how the picture changes with the assumed design losses ---------------------------------
 st.header("How much depends on the assumed design losses")
@@ -97,7 +97,7 @@ sens_view = (sens / 1e6).rename(
 )
 sens_view.index = [f"{v:g} %" for v in sens.index]
 sens_view.index.name = "assumed design DC losses"
-st.dataframe(sens_view.style.format("{:.1f}"), width="stretch")
+common.table(sens_view.style.format("{:.1f}"), width="stretch")
 st.caption(
     "Downtime here is gross (before the channel credit); the whole-period total of 43.2 GWh in the "
     "summary is downtime net of channel loss plus running shortfall at 6.34 %."
