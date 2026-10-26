@@ -8,6 +8,7 @@ Only two values are changed, both recorded:
 - small negative irradiance at night (zero offset of the sensor) -> 0, flagged.
 """
 
+import logging
 import re
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from pvanalytics.quality.irradiance import check_irradiance_limits_qcrad
 from pv_loss_auditor import timealign as ta
 from pv_loss_auditor.coverage import SENTINEL_MAX
 from pv_loss_auditor.geometry import Site
+
+log = logging.getLogger(__name__)
 
 FILES = ["irradiance", "environment", "electrical_ac", "meter"]
 
@@ -38,6 +41,9 @@ def load_utc(config):
     for file in FILES:
         folder = Path(config["period"]["out_dir"]) / file
         paths = sorted(folder.glob(f"{file}_*.parquet"))
+        if not paths:
+            raise ValueError(f"no monthly parquet files for '{file}' in {folder}: "
+                             "run `python -m pv_loss_auditor.pvdaq --period` first")
         cols = _select(pd.read_parquet(paths[0]).columns, cl["keep"][file])
         raw = pd.concat([pd.read_parquet(p, columns=cols) for p in paths])
         raw = raw[~raw.index.duplicated()]
@@ -144,7 +150,9 @@ def build_clean(config):
         flag_stale(data, ["p_ac_meter2_kw"], cl, ac_rating_kw=40 * rating),
         flag_ac(data, ["p_ac_meter2_kw"], {**cl, "ac_min_kw": 40 * cl["ac_min_kw"]}, 40 * rating),
     ]
-    return pd.concat([data, *flags], axis=1), sentinels
+    data = pd.concat([data, *flags], axis=1)
+    log.info("cleaned %d steps x %d columns, %d sentinel values replaced", *data.shape, int(sentinels.sum()))
+    return data, sentinels
 
 
 def save_monthly(data, out_dir):
@@ -162,6 +170,9 @@ def save_monthly(data, out_dir):
 def load_clean(config, columns=None):
     """Read the clean dataset back (all months)."""
     paths = sorted(Path(config["clean"]["out_dir"]).glob("9069_clean_*.parquet"))
+    if not paths:
+        raise ValueError(f"no clean parquet files in {config['clean']['out_dir']}: "
+                         "run `python -m pv_loss_auditor.data` first")
     return pd.concat([pd.read_parquet(p, columns=columns) for p in paths])
 
 
@@ -258,6 +269,9 @@ def main():
     import argparse
 
     from pv_loss_auditor.config import load_config
+    from pv_loss_auditor.logs import setup_logging
+
+    setup_logging()
 
     parser = argparse.ArgumentParser(description="Build the clean 9069 dataset (monthly parquet).")
     parser.add_argument("--config", default="configs/system_9069.yaml")
@@ -265,7 +279,7 @@ def main():
     config = load_config(args.config)
     data, sentinels = build_clean(config)
     paths = save_monthly(data, config["clean"]["out_dir"])
-    print(f"{len(paths)} monthly files written to {config['clean']['out_dir']}, "
+    log.info(f"{len(paths)} monthly files written to {config['clean']['out_dir']}, "
           f"{data.shape[0]} steps x {data.shape[1]} columns")
 
 

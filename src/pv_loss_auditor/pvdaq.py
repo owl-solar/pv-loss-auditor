@@ -7,6 +7,7 @@ Bucket layout (s3://oedi-data-lake/pvdaq/), as found on inspection:
 - 2023-solar-data-prize/<id>_OEDI/   six detailed systems, each with metadata/*.json
 """
 
+import logging
 import argparse
 import io
 import json
@@ -23,6 +24,9 @@ from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
 from pv_loss_auditor.config import load_config
+from pv_loss_auditor.logs import setup_logging
+
+log = logging.getLogger(__name__)
 
 BUCKET = "oedi-data-lake"
 PREFIX = "pvdaq/"
@@ -179,7 +183,7 @@ def plan_sample(s3, config):
         for month in data["sample_months"]:
             out_path = out_dir / f"{name}_{month}.parquet"
             if out_path.exists():
-                print(f"cached, skip: {out_path}")
+                log.info(f"cached, skip: {out_path}")
                 continue
             ts_start, ts_end = _month_bounds(month)
             start = find_offset(s3, spec["key"], header["data_start"], header["size"], ts_start)
@@ -221,8 +225,8 @@ def download_sample(config, dry_run=False, assume_yes=False):
     parts = plan_sample(s3, config)
     total_mb = sum(p["end"] - p["start"] for p in parts) / 1e6
     for p in parts:
-        print(f"{p['name']:14s} {p['month']}  {(p['end'] - p['start']) / 1e6:7.1f} MB")
-    print(f"To download: {total_mb:.1f} MB "
+        log.info(f"{p['name']:14s} {p['month']}  {(p['end'] - p['start']) / 1e6:7.1f} MB")
+    log.info(f"To download: {total_mb:.1f} MB "
           f"(probes and headers so far: {bytes_transferred / 1e6:.2f} MB)")
 
     if dry_run or not parts:
@@ -245,9 +249,9 @@ def download_sample(config, dry_run=False, assume_yes=False):
         p["out_path"].parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(p["out_path"])
         saved.append(p["out_path"])
-        print(f"saved {p['out_path']}  rows={len(df)}  "
+        log.info(f"saved {p['out_path']}  rows={len(df)}  "
               f"{df.index.min()} .. {df.index.max()}  duplicates={df.index.duplicated().sum()}")
-    print(f"Total transferred this run: {bytes_transferred / 1e6:.1f} MB")
+    log.info(f"Total transferred this run: {bytes_transferred / 1e6:.1f} MB")
     return saved
 
 
@@ -321,7 +325,7 @@ def _get_range_retry(s3, key, start, end, retries):
             if attempt == retries:
                 raise
             wait = 2 ** (attempt + 1)
-            print(f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} "
+            log.info(f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} "
                   f"in {wait} s", flush=True)
             time.sleep(wait)
 
@@ -431,7 +435,7 @@ class _MonthSaver:
         file_done = end - self.entry["start_offset"]
         speed = (bytes_transferred - p["traffic0"]) / max(time.time() - p["t0"], 1e-9)
         eta_min = (p["total"] - p["done"]) / max(speed, 1) / 60
-        print(f"{self.label} {self.name:13s} {month}  {month_bytes / 1e6:6.1f} MB | "
+        log.info(f"{self.label} {self.name:13s} {month}  {month_bytes / 1e6:6.1f} MB | "
               f"file {file_done / 1e6:6.1f}/{file_total / 1e6:.1f} MB "
               f"({100 * file_done / file_total:3.0f}%) | "
               f"total {p['done'] / 1e6:7.1f}/{p['total'] / 1e6:.1f} MB | "
@@ -506,13 +510,13 @@ def download_period(config, files=None, dry_run=False):
 
     total = sum(p["size"] - p["entry"]["start_offset"] for p in plans)
     todo = sum(p["size"] - p["resume"] for p in plans)
-    print(f"{'file':14s} {'period MB':>10s} {'saved MB':>9s} {'to download MB':>15s}  months saved")
+    log.info(f"{'file':14s} {'period MB':>10s} {'saved MB':>9s} {'to download MB':>15s}  months saved")
     for p in plans:
         full = p["size"] - p["entry"]["start_offset"]
         left = p["size"] - p["resume"]
-        print(f"{p['name']:14s} {full / 1e6:10.1f} {(full - left) / 1e6:9.1f} {left / 1e6:15.1f}  "
+        log.info(f"{p['name']:14s} {full / 1e6:10.1f} {(full - left) / 1e6:9.1f} {left / 1e6:15.1f}  "
               f"{len(p['entry']['months'])}")
-    print(f"To download: {todo / 1e6:.1f} MB (approved: {period['approved_mb']} MB; "
+    log.info(f"To download: {todo / 1e6:.1f} MB (approved: {period['approved_mb']} MB; "
           f"headers and search so far: {bytes_transferred / 1e6:.2f} MB)")
     if todo / 1e6 > period["approved_mb"]:
         raise SystemExit("Exceeds period.approved_mb. Ask for approval before raising it.")
@@ -526,18 +530,19 @@ def download_period(config, files=None, dry_run=False):
             if plan["resume"] < plan["size"]:
                 _download_file(s3, plan, f"[{i}/{len(plans)}]", config, manifest, progress)
     except BaseException:
-        print("Interrupted. Run the same command again: it continues after the last saved "
+        log.warning("Interrupted. Run the same command again: it continues after the last saved "
               "month, saved months are not downloaded again.", flush=True)
         raise
 
     report = period_report(config)
-    print("\nDownload log (cumulative over all runs):")
-    print(report.to_string(index=False))
+    log.info("\nDownload log (cumulative over all runs):")
+    log.info(report.to_string(index=False))
     report.to_csv(Path(period["out_dir"]) / "download_log.csv", index=False)
-    print(f"Transferred in this run: {bytes_transferred / 1e6:.1f} MB")
+    log.info(f"Transferred in this run: {bytes_transferred / 1e6:.1f} MB")
 
 
 def main():
+    setup_logging()
     parser = argparse.ArgumentParser(description="Download configured PVDAQ data.")
     parser.add_argument("--config", required=True, help="e.g. configs/system_9069.yaml")
     parser.add_argument("--period", action="store_true",

@@ -10,6 +10,7 @@ sidebar, so the price band can be changed without a new export. Run from the pro
     python -m pv_loss_auditor.export_dashboard --config configs/system_9069.yaml
 """
 
+import logging
 import argparse
 import json
 from pathlib import Path
@@ -20,8 +21,11 @@ from pv_loss_auditor import anomalies as an
 from pv_loss_auditor import degradation as dg
 from pv_loss_auditor import kpi, losses, openmeteo as om, outages, prices
 from pv_loss_auditor.config import load_config
+from pv_loss_auditor.logs import setup_logging
 from pv_loss_auditor.model import cell_temperature, load_inputs, weighted_gamma
 from pv_loss_auditor.synthetic_faults import inject_faults, plan_faults
+
+log = logging.getLogger(__name__)
 
 OUT_DIR = Path("app/data")
 
@@ -197,6 +201,7 @@ def write_tables(tables, out_dir):
 
 
 def main():
+    setup_logging()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--config", required=True)
     parser.add_argument("--out", default=str(OUT_DIR))
@@ -217,7 +222,7 @@ def main():
     out = Path(args.out)
     sizes = write_tables(tables, out)
     (out / "meta.json").write_text(json.dumps(meta(config, t_ref), indent=2), encoding="utf8")
-    print("written to", out, "(kB):", sizes)
+    log.info("written to %s (kB): %s", out, sizes)
 
 
 if __name__ == "__main__":

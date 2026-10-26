@@ -10,6 +10,7 @@ Precision of (2) is coarse: ~10 daylight snapshots per month -> about +-15 perce
 Good enough to choose an analysis period, not to compute availability KPIs.
 """
 
+import logging
 import argparse
 import json
 import re
@@ -22,6 +23,9 @@ import pvlib
 
 from pv_loss_auditor import pvdaq
 from pv_loss_auditor.config import load_config
+from pv_loss_auditor.logs import setup_logging
+
+log = logging.getLogger(__name__)
 
 TS_LEN = pvdaq.TS_LEN
 SENTINEL_MAX = -250  # values like -297 / -299 / -300 are logger placeholders, not measurements
@@ -158,9 +162,9 @@ def build_coverage(config, dry_run=False, assume_yes=False):
     todo = [p for p in plan_points(s3, config)
             if not (out_dir / f"{p['name']}_samples.parquet").exists()]
     table = estimate(todo)
-    print(table.round(2).to_string(index=False))
+    log.info(table.round(2).to_string(index=False))
     total_mb = table["total_mb"].sum() if len(table) else 0.0
-    print(f"Estimated total: {total_mb:.1f} MB "
+    log.info(f"Estimated total: {total_mb:.1f} MB "
           f"(spent on headers/first-last rows so far: {pvdaq.bytes_transferred / 1e6:.2f} MB)")
     if dry_run or not todo:
         return
@@ -180,7 +184,7 @@ def build_coverage(config, dry_run=False, assume_yes=False):
         gaps = find_gaps(s3, p, samples, cov["min_gap_days"])
         samples.to_parquet(out_dir / f"{p['name']}_samples.parquet")
         (out_dir / f"{p['name']}_gaps.json").write_text(json.dumps(gaps, default=str, indent=1))
-        print(f"{p['name']}: {len(samples)} snapshots, {len(gaps)} gaps > {cov['min_gap_days']} d, "
+        log.info(f"{p['name']}: {len(samples)} snapshots, {len(gaps)} gaps > {cov['min_gap_days']} d, "
               f"traffic so far {pvdaq.bytes_transferred / 1e6:.1f} MB")
 
 
@@ -231,6 +235,7 @@ def short_label(col):
 
 
 def main():
+    setup_logging()
     parser = argparse.ArgumentParser(description="Full-period coverage map via point reads.")
     parser.add_argument("--config", required=True, help="e.g. configs/system_9069.yaml")
     parser.add_argument("--dry-run", action="store_true", help="only print the traffic estimate")
