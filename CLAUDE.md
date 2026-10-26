@@ -315,7 +315,9 @@ number**. Done in 6 phases, each stopped for my "ok". Where things are:
   geometry, timealign, plots). Third-party packages without types are `Any` (`ignore_missing_imports`).
 - Bug found by mypy and fixed: `log.info(..., flush=True)` left over from the print -> logging conversion in pvdaq
   (would raise TypeError on the first download retry). `tests/test_logging_calls.py` checks all logging calls.
-- Not done on purpose: CD / scheduled runs, Docker, Streamlit changes, tag v1.0.
+- Not done on purpose: Streamlit changes, tag v1.0. **Decided against (portfolio project, 2026-10-26): scheduled CD and Docker.**
+  Why: the data (2020-05 ... 2023-11) are fixed and never updated, so a weekly run would recompute the same numbers; CI on
+  every push already checks code and golden values; reproduction is four pinned commands. Do not propose them again unless I ask.
 
 ## Engineering rules (from this work, apply to every change)
 - **Every new function in `src/pv_loss_auditor/` comes with a test in `tests/`**, and physics tests state the
