@@ -29,6 +29,6 @@ CAUSES = {
 }
 
 
-def by_cause(table):
+def by_cause(table: pd.DataFrame) -> pd.DataFrame:
     """Waterfall steps summed into the groups of CAUSES (kWh)."""
     return pd.DataFrame({name: table[cols].sum(axis=1) for name, cols in CAUSES.items()})

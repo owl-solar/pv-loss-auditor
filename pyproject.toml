@@ -39,6 +39,7 @@ dev = [
     "pytest-cov==7.1.0",
     "ruff==0.17.2",
     "pre-commit==4.7.0",
+    "mypy==2.4.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -68,3 +69,12 @@ ignore = [
 
 [tool.ruff.lint.isort]
 known-first-party = ["pv_loss_auditor", "scripts", "conftest", "common"]
+
+[tool.mypy]
+python_version = "3.13"
+files = ["src/pv_loss_auditor"]
+# Every function must be annotated; bodies are checked. Third-party packages without type information
+# (pvlib, pvanalytics, rdtools, boto3 ...) are treated as Any instead of failing the run.
+disallow_untyped_defs = true
+ignore_missing_imports = true
+warn_unused_ignores = true

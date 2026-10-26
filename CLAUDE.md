@@ -177,7 +177,7 @@ an unexplained remainder shown as a range; ERA5 + IFS; AOI = ASHRAE b0 0.05.
   data are means of the PRECEDING hour (labels at hour end).
 
 ## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
-`notebooks/03_loss_waterfall.ipynb`, `src/pv_loss_auditor/losses.py`, `tests/` (`python -m pytest`, 156 tests after the production refactor), `losses:` in the config. Decisions (taken with me, options first):
+`notebooks/03_loss_waterfall.ipynb`, `src/pv_loss_auditor/losses.py`, `tests/` (`python -m pytest`, 160 tests after the production refactor), `losses:` in the config. Decisions (taken with me, options first):
 - Sequential cascade in physical order: nominal (P0·G/1000) → temperature (γ nameplate, T_ref
   25 °C) → design DC losses → inverter efficiency → clipping (= expected) → downtime → AC unknown
   → channel credit → running shortfall → meter reconciliation → after inverters (= meter 2).
@@ -296,7 +296,7 @@ number**. Done in 6 phases, each stopped for my "ok". Where things are:
   `validation.py` (ValueError helpers + warnings), `logs.py` (`setup_logging`, called only from `main()`).
 - All parameters in `configs/system_9069.yaml` (new section `validation:`); `load_config` checks required sections.
   A root `config.yaml` was NOT created: `configs/` stays for the secondary system 1200.
-- `tests/`: 156 tests. `tests/fixtures/9069_clean/` = 14 days (2020-12-08…21, 353 kB) of the REAL clean data, the
+- `tests/`: 160 tests. `tests/fixtures/9069_clean/` = 14 days (2020-12-08…21, 353 kB) of the REAL clean data, the
   one allowed exception to "never commit data" (public NREL data, contains the stop of 12-12…18);
   `tests/fixtures/golden_values.json` = 127 numbers on the fixture + 2240 on the full period.
   `scripts/make_fixture.py`, `capture_golden.py`, `compare_golden.py` (was / is / difference, never overwrites).
@@ -309,15 +309,18 @@ number**. Done in 6 phases, each stopped for my "ok". Where things are:
 - Streamlit deployment: `app/common.py` puts `<repo>/src` on `sys.path` (package not installed there); first redeploy after this
   refactor not yet seen (no browser here).
 - Verified identical before / after: 0 differences at rel. 1e-9 (fixture and full period), 25 dashboard tables.
-- Type hints and input checks: config, model, kpi, losses, anomalies, validation, degradation, outages, openmeteo,
-  prices, synthetic_faults, dashboard_data (follow-up, tests in `test_validation_remaining_modules.py`); only light hints
-  in sensor_checks; NOT done: plots, pvdaq, coverage, geometry, timealign, data (cleaning functions), export_dashboard.
+- Type hints: every function of the package is annotated and `mypy` (config in `pyproject.toml`, `disallow_untyped_defs`)
+  passes in CI and pre-commit. Input checks (`ValueError`) exist in config, model, kpi, losses, anomalies, degradation,
+  outages, openmeteo, prices, synthetic_faults, dashboard_data; NOT in the I/O modules (pvdaq, coverage, data cleaning,
+  geometry, timealign, plots). Third-party packages without types are `Any` (`ignore_missing_imports`).
+- Bug found by mypy and fixed: `log.info(..., flush=True)` left over from the print -> logging conversion in pvdaq
+  (would raise TypeError on the first download retry). `tests/test_logging_calls.py` checks all logging calls.
 - Not done on purpose: CD / scheduled runs, Docker, Streamlit changes, tag v1.0.
 
 ## Engineering rules (from this work, apply to every change)
 - **Every new function in `src/pv_loss_auditor/` comes with a test in `tests/`**, and physics tests state the
   answer worked out by hand, not copied from the program's output.
-- **Before each commit: `ruff check .`, `ruff format .` and `pytest`** (pre-commit does the first two).
+- **Before each commit: `ruff check .`, `ruff format .`, `mypy` and `pytest`** (pre-commit does the first two).
 - **`golden_values.json` changes only on purpose**, with the reason in the commit message. A difference after a
   refactor is a bug to find, never a reason to update the file. Check: `python -m scripts.compare_golden --run fixture`
   (and `--run full` locally when the calculation code was touched).

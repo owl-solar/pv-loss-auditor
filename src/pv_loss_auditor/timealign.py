@@ -7,7 +7,9 @@ meter follow US dates (America/New_York). The detection never uses the timestamp
 the sun, which cannot be wrong about the time.
 """
 
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -24,7 +26,7 @@ STEPS_PER_HOUR = 12
 EU_DST_UTC5 = "eu_dst_utc-5"
 
 
-def load_period(config, file, columns=None):
+def load_period(config: Mapping[str, Any], file: str, columns: Sequence[str] | None = None) -> pd.DataFrame:
     """All monthly parquet files of one source file -> one DataFrame on the naive label index.
 
     Logger placeholders (<= SENTINEL_MAX, e.g. -297) become NaN; nothing else is changed.
@@ -36,7 +38,7 @@ def load_period(config, file, columns=None):
     return df.mask(df <= SENTINEL_MAX)
 
 
-def to_utc(index, rule):
+def to_utc(index: pd.DatetimeIndex, rule: str) -> pd.DatetimeIndex:
     """Naive label index -> tz-aware UTC index, using the clock rule of the file.
 
     The repeated autumn hour (US rule) and the skipped spring hour become NaT: both are at night.
@@ -44,7 +46,7 @@ def to_utc(index, rule):
     if rule == EU_DST_UTC5:
         # Europe/London is UTC+1 exactly while EU summer time is in force, so its offset at a
         # UTC instant tells whether the logger clock was 1 h ahead at that instant.
-        def summer(utc):
+        def summer(utc: pd.DatetimeIndex) -> np.ndarray:
             return utc.tz_convert("Europe/London").map(lambda t: t.utcoffset()) != pd.Timedelta(0)
 
         as_winter = (index + pd.Timedelta(hours=5)).tz_localize("UTC")  # label read as UTC-5
@@ -57,13 +59,19 @@ def to_utc(index, rule):
     return index.tz_localize(rule, ambiguous="NaT", nonexistent="NaT").tz_convert("UTC")
 
 
-def expected_offset_h(days, rule):
+def expected_offset_h(days: pd.DatetimeIndex, rule: str) -> np.ndarray:
     """Offset label - UTC (hours) at local noon of each day under a clock rule."""
     noon = pd.DatetimeIndex(days).normalize() + pd.Timedelta(hours=12)
     return (noon - to_utc(noon, rule).tz_localize(None)) / pd.Timedelta(hours=1)
 
 
-def daily_clock_offset(series, latitude, longitude, search_h=(-6.0, -3.0), min_r=0.0):
+def daily_clock_offset(
+    series: pd.Series,
+    latitude: float,
+    longitude: float,
+    search_h: tuple[float, float] = (-6.0, -3.0),
+    min_r: float = 0.0,
+) -> pd.DataFrame:
     """Best clock offset (label - UTC, hours) of every day, from the shape of the daily profile.
 
     For each candidate offset (5-min steps) the day's values are correlated with clear-sky GHI
@@ -93,7 +101,8 @@ def daily_clock_offset(series, latitude, longitude, search_h=(-6.0, -3.0), min_r
         day = values[d0 : d0 + STEPS_PER_DAY]
         if np.isnan(day).mean() > 0.1:
             continue
-        best_k, best_r = np.nan, -np.inf
+        best_k: Any = np.nan
+        best_r: float = -np.inf
         for k in offsets:
             cs = clear[pad + d0 - k : pad + d0 - k + STEPS_PER_DAY]
             ok = ~np.isnan(day) & (cs > 20)  # daytime by the model; night adds no information
@@ -107,7 +116,9 @@ def daily_clock_offset(series, latitude, longitude, search_h=(-6.0, -3.0), min_r
     return out[out["r"] > min_r]
 
 
-def rule_mismatches(offsets, rules, min_r=0.97, tolerance_h=0.5):
+def rule_mismatches(
+    offsets: pd.DataFrame, rules: Sequence[str], min_r: float = 0.97, tolerance_h: float = 0.5
+) -> pd.DataFrame:
     """How many clear days contradict each clock rule (|detected - expected| > tolerance)."""
     clear = offsets[offsets["r"] > min_r]
     rows = []
@@ -117,7 +128,9 @@ def rule_mismatches(offsets, rules, min_r=0.97, tolerance_h=0.5):
     return pd.DataFrame(rows).set_index("rule")
 
 
-def lag_h(reference, other, start, end, max_lag_h=2.0, min_ref=20):
+def lag_h(
+    reference: pd.Series, other: pd.Series, start: str, end: str, max_lag_h: float = 2.0, min_ref: float = 20
+) -> tuple[float, float]:
     """Lag (hours) that best aligns `other` with `reference` in [start, end], and its r.
 
     Positive lag = `other` is labelled later than `reference`. Both series must share one
@@ -139,7 +152,9 @@ def lag_h(reference, other, start, end, max_lag_h=2.0, min_ref=20):
     return best
 
 
-def rule_windows(years, rule_a="America/New_York", rule_b=EU_DST_UTC5):
+def rule_windows(
+    years: Sequence[int], rule_a: str = "America/New_York", rule_b: str = EU_DST_UTC5
+) -> list[tuple[str, str]]:
     """Date ranges where two clock rules disagree by one hour (only there can they be told apart).
 
     Found by comparing the expected offsets day by day. Returns a list of (first day, last day).

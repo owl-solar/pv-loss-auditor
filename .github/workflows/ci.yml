@@ -38,6 +38,9 @@ jobs:
       - name: Formatting (ruff format --check)
         run: ruff format --check .
 
+      - name: Type check (mypy)
+        run: mypy
+
       - name: Tests with coverage
         run: pytest --cov=pv_loss_auditor --cov-report=term-missing
 

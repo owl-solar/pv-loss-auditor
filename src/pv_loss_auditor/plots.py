@@ -1,9 +1,13 @@
 """Static figures (matplotlib) for notebooks and README. Static PNG renders on GitHub."""
 
+from collections.abc import Mapping, Sequence
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+from matplotlib.axes import Axes
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.figure import Figure
 from matplotlib.patches import Patch
 
 # Sequential single-hue ramp (light = low, dark = high), steps 100..700 of a validated blue.
@@ -12,7 +16,13 @@ NO_DATA_GRAY = "#d9d8d4"  # neutral, not part of the ramp: "cannot be assessed",
 INK, MUTED = "#0b0b0b", "#898781"
 
 
-def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
+def availability_heatmap(
+    table: pd.DataFrame,
+    groups: Sequence[tuple[str, Sequence[str]]],
+    gaps: pd.DataFrame | None = None,
+    title: str = "",
+    min_gap_days: float = 7,
+) -> Figure:
     """Channel x month heatmap of availability in %.
 
     table  : DataFrame, index = channel labels, columns = monthly Periods, values 0..100 or NaN
@@ -87,7 +97,7 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
         big["start_month"] = pd.to_datetime(big["last_before"]).dt.to_period("M")
         big = big.sort_values("days", ascending=False).drop_duplicates("start_month")
 
-        def month_x(ts):
+        def month_x(ts: pd.Timestamp) -> float:
             """Timestamp -> x position (month index + fraction of the month)."""
             ts = pd.Timestamp(ts)
             return (pd.Period(ts, "M") - months[0]).n + (ts.day - 1) / ts.days_in_month
@@ -120,7 +130,9 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
     return fig
 
 
-def geometry_check_plot(day_poa, grid, ac_profiles, ac_rating_kw, title=""):
+def geometry_check_plot(
+    day_poa: pd.DataFrame, grid: pd.DataFrame, ac_profiles: pd.DataFrame, ac_rating_kw: float, title: str = ""
+) -> Figure:
     """Three panels: POA on one clear day, nRMSE over tilt x azimuth, clear-day AC profiles.
 
     day_poa     : DataFrame on local time of one day; columns 'measured', 'fixed', 'tracker'
@@ -183,7 +195,13 @@ def geometry_check_plot(day_poa, grid, ac_profiles, ac_rating_kw, title=""):
     return fig
 
 
-def clock_offset_plot(offsets, base, other, windows, title=""):
+def clock_offset_plot(
+    offsets: Mapping[str, pd.DataFrame],
+    base: tuple[str, pd.Series],
+    other: tuple[str, pd.Series],
+    windows: Sequence[tuple[str, str]],
+    title: str = "",
+) -> Figure:
     """Detected daily clock offset per channel, relative to a base rule, one panel per channel.
 
     The two candidate rules differ only in a few weeks a year, which are invisible on a plot of
@@ -229,7 +247,7 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
 GRID = "#e6e5e1"
 
 
-def _style(ax, title):
+def _style(ax: Axes, title: str) -> None:
     ax.set_title(title, loc="left", fontsize=10, color=INK)
     ax.grid(color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
@@ -238,7 +256,7 @@ def _style(ax, title):
         ax.spines[side].set_visible(False)
 
 
-def gamma_plot(table, nameplate_pct, title=""):
+def gamma_plot(table: pd.DataFrame, nameplate_pct: float, title: str = "") -> Figure:
     """gamma per inverter (within-month fit) with the DC-weighted nameplate value and -0.28."""
     fig, ax = plt.subplots(figsize=(12, 3.8))
     x = np.arange(len(table))
@@ -256,7 +274,7 @@ def gamma_plot(table, nameplate_pct, title=""):
     return fig
 
 
-def drift_plot(monthly, title=""):
+def drift_plot(monthly: pd.DataFrame, title: str = "") -> Figure:
     """Monthly median ratio of each reference cell to pyranometer 02B (one line per cell)."""
     fig, ax = plt.subplots(figsize=(12, 3.8))
     x = monthly.index.to_timestamp()
@@ -278,7 +296,7 @@ def drift_plot(monthly, title=""):
     return fig
 
 
-def pr_variants_plot(table, title=""):
+def pr_variants_plot(table: pd.DataFrame, title: str = "") -> Figure:
     """Monthly PR: raw (A), STC-corrected (B), weather-corrected (C); excluding downtime."""
     fig, ax = plt.subplots(figsize=(12, 4))
     x = table.index.to_timestamp()
@@ -296,7 +314,7 @@ def pr_variants_plot(table, title=""):
     return fig
 
 
-def downtime_heatmap(down_share, title=""):
+def downtime_heatmap(down_share: pd.DataFrame, title: str = "") -> Figure:
     """Share of lit inverter-steps with the inverter down: inverters x local months.
 
     Sequential single hue, light = little downtime, dark = a lot; gray = no usable data.
@@ -356,7 +374,7 @@ _WATERFALL_COLOR = {
 }
 
 
-def waterfall_plot(table, steps, title=""):
+def waterfall_plot(table: pd.DataFrame, steps: Sequence[str], title: str = "") -> Figure:
     """One waterfall per period (panel): nominal -> steps -> meter, in GWh. Needs table columns
     nominal_kwh, metered_kwh and the loss steps (kWh, positive = loss)."""
     n = len(table)
@@ -384,7 +402,7 @@ def waterfall_plot(table, steps, title=""):
     return fig
 
 
-def loss_causes_plot(share, title=""):
+def loss_causes_plot(share: pd.DataFrame, title: str = "") -> Figure:
     """Monthly losses as a share of the nominal energy, stacked by cause (columns of `share`)."""
     colors = [MUTED, SERIES[1], SERIES[0], BLUE_RAMP[1]]
     fig, ax = plt.subplots(figsize=(13, 4.2))

@@ -10,7 +10,9 @@ Only two values are changed, both recorded:
 
 import logging
 import re
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,11 +28,11 @@ log = logging.getLogger(__name__)
 FILES = ["irradiance", "environment", "electrical_ac", "meter"]
 
 
-def _select(columns, patterns):
+def _select(columns: Iterable[str], patterns: Sequence[str]) -> list[str]:
     return [c for c in columns if any(re.search(p, c) for p in patterns)]
 
 
-def load_utc(config):
+def load_utc(config: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.Series]:
     """Selected channels of all files -> one DataFrame on a regular 5-min UTC grid.
 
     Returns (data, sentinel_counts). Each file is converted with its own clock rule
@@ -60,7 +62,7 @@ def load_utc(config):
     return data, pd.Series(sentinels, name="sentinel_values")
 
 
-def add_sun(data, config):
+def add_sun(data: pd.DataFrame, config: Mapping[str, Any]) -> Site:
     """Sun elevation, clear-sky GHI and clear-sky POA of the fixed plane; returns the Site."""
     s = config["system"]
     site = Site(s["latitude"], s["longitude"], s["elevation_m"], data.index)
@@ -72,7 +74,9 @@ def add_sun(data, config):
     return site
 
 
-def flag_stale(data, columns, cl, ac_rating_kw=None):
+def flag_stale(
+    data: pd.DataFrame, columns: Sequence[str], cl: Mapping[str, Any], ac_rating_kw: float | None = None
+) -> pd.DataFrame:
     """flag_stale__<col>: >= window identical values in daylight (pvanalytics stale_values_diff).
 
     For AC power, exact 0 (inverter off = downtime, a real loss) and the clipping plateau
@@ -89,7 +93,9 @@ def flag_stale(data, columns, cl, ac_rating_kw=None):
     return pd.DataFrame(flags)
 
 
-def flag_irradiance(data, site, ghi_cols, poa_cols, cl):
+def flag_irradiance(
+    data: pd.DataFrame, site: Site, ghi_cols: list[str], poa_cols: list[str], cl: Mapping[str, Any]
+) -> pd.DataFrame:
     """Out-of-range irradiance; zero offset at night set to 0 (flag_night_zeroed__<col>).
 
     GHI: QCRAD physical limits (upper bound from extraterrestrial irradiance and sun zenith).
@@ -114,7 +120,7 @@ def flag_irradiance(data, site, ghi_cols, poa_cols, cl):
     return pd.DataFrame(flags)
 
 
-def flag_sensor_limits(data, limits):
+def flag_sensor_limits(data: pd.DataFrame, limits: Mapping[str, Sequence[float]]) -> pd.DataFrame:
     """Temperature and wind outside their physical range: {regex: [min, max]} from the config."""
     flags = {}
     for pattern, (lo, hi) in limits.items():
@@ -124,7 +130,9 @@ def flag_sensor_limits(data, limits):
     return pd.DataFrame(flags)
 
 
-def flag_ac(data, columns, cl, ac_rating_kw):
+def flag_ac(
+    data: pd.DataFrame, columns: Sequence[str], cl: Mapping[str, Any], ac_rating_kw: float
+) -> pd.DataFrame:
     """AC power above ac_max_fraction x rating or below ac_min_kw."""
     return pd.DataFrame(
         {
@@ -134,7 +142,7 @@ def flag_ac(data, columns, cl, ac_rating_kw):
     )
 
 
-def build_clean(config):
+def build_clean(config: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.Series]:
     """Full cleaning run. Returns (data with flag columns, sentinel counts)."""
     cl = config["clean"]
     data, sentinels = load_utc(config)
@@ -159,7 +167,7 @@ def build_clean(config):
     return data, sentinels
 
 
-def save_monthly(data, out_dir):
+def save_monthly(data: pd.DataFrame, out_dir: str | Path) -> list[Path]:
     """One parquet file per UTC month: <out_dir>/9069_clean_<YYYY-MM>.parquet."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -171,7 +179,7 @@ def save_monthly(data, out_dir):
     return paths
 
 
-def load_clean(config, columns=None):
+def load_clean(config: Mapping[str, Any], columns: Sequence[str] | None = None) -> pd.DataFrame:
     """Read the clean dataset back (all months)."""
     paths = sorted(Path(config["clean"]["out_dir"]).glob("9069_clean_*.parquet"))
     if not paths:
@@ -182,7 +190,7 @@ def load_clean(config, columns=None):
     return pd.concat([pd.read_parquet(p, columns=columns) for p in paths])
 
 
-def flag_summary(data):
+def flag_summary(data: pd.DataFrame) -> pd.DataFrame:
     """Per channel: % valid in daylight and % of daylight steps carrying each flag."""
     day = data["flag_daylight"]
     channels = [
@@ -203,7 +211,7 @@ def flag_summary(data):
     return pd.DataFrame(rows).set_index("channel")
 
 
-def compact_summary(summary):
+def compact_summary(summary: pd.DataFrame) -> pd.DataFrame:
     """flag_summary with the 40 inverters folded into one row (median and worst inverter)."""
     inv = summary[summary.index.str.match(r"p_ac_inv\d{2}_kw$")]
     rest = summary.drop(inv.index)
@@ -218,7 +226,7 @@ def compact_summary(summary):
     return pd.concat([rest, folded]).rename_axis("channel")
 
 
-def monthly_valid(data, channels):
+def monthly_valid(data: pd.DataFrame, channels: Sequence[str]) -> pd.DataFrame:
     """% of daylight steps with a value and no stale/range flag, per UTC month and channel."""
     day = data["flag_daylight"]
     out = {}
@@ -232,7 +240,9 @@ def monthly_valid(data, channels):
     return pd.DataFrame(out).rename_axis("month")
 
 
-def write_report(data, sentinels, config, path, findings=""):
+def write_report(
+    data: pd.DataFrame, sentinels: pd.Series, config: Mapping[str, Any], path: str | Path, findings: str = ""
+) -> str | Path:
     """Markdown QA report: settings, flag shares per channel, monthly usable share, findings."""
     cl = config["clean"]
     summary = compact_summary(flag_summary(data))
@@ -288,7 +298,7 @@ Generated by `src/pv_loss_auditor/data.py` (notebook `01_data_qa.ipynb`, section
     return path
 
 
-def main():
+def main() -> None:
     import argparse
 
     from pv_loss_auditor.config import load_config
@@ -308,7 +318,7 @@ def main():
     )
 
 
-def to_markdown(df, floatfmt="{:.2f}"):
+def to_markdown(df: pd.DataFrame, floatfmt: str = "{:.2f}") -> str:
     """Minimal markdown table (avoids an extra dependency); NaN -> '–'."""
     head = "| " + " | ".join([df.index.name or ""] + [str(c) for c in df.columns]) + " |"
     sep = "|" + "---|" * (len(df.columns) + 1)

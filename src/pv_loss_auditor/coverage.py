@@ -14,8 +14,10 @@ import argparse
 import json
 import logging
 import re
+from collections.abc import Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -32,7 +34,7 @@ SENTINEL_MAX = -250  # values like -297 / -299 / -300 are logger placeholders, n
 REQUEST_OVERHEAD_BYTES = 700  # rough size of HTTP request + response headers, estimate only
 
 
-def _read_row(s3, key, offset, read_bytes, size):
+def _read_row(s3: Any, key: str, offset: int, read_bytes: int, size: int) -> str | None:
     """Return the first complete CSV row that starts after `offset` (as str), or None at EOF.
 
     A random offset usually lands inside a row, so we skip to the next newline and take the
@@ -50,16 +52,19 @@ def _read_row(s3, key, offset, read_bytes, size):
         n *= 2
 
 
-def _file_span(s3, key, header, read_bytes):
+def _file_span(
+    s3: Any, key: str, header: dict[str, Any], read_bytes: int
+) -> tuple[pd.Timestamp, pd.Timestamp]:
     """First and last timestamp of a file (two tiny reads)."""
     # data_start - 1 is the newline that ends the header, so the next row is the first data row.
     first = _read_row(s3, key, header["data_start"] - 1, read_bytes, header["size"])
+    assert first is not None, "empty data section"
     tail = pvdaq._get_range(s3, key, header["size"] - 2 * read_bytes, header["size"])
     last = tail.rstrip().split(b"\n")[-1].decode()
     return first[:TS_LEN], last[:TS_LEN]
 
 
-def plan_points(s3, config):
+def plan_points(s3: Any, config: Mapping[str, Any]) -> list[dict[str, Any]]:
     """For each file: byte offsets of the point reads (points_per_month x months in the file)."""
     cov = config["coverage"]
     plan = []
@@ -93,7 +98,7 @@ def plan_points(s3, config):
     return plan
 
 
-def estimate(plan, gap_probes_reserve=200):
+def estimate(plan: Sequence[dict[str, Any]], gap_probes_reserve: int = 200) -> pd.DataFrame:
     """Expected traffic in MB per file: point reads + HTTP overhead + reserve for gap search."""
     rows = []
     for p in plan:
@@ -114,7 +119,9 @@ def estimate(plan, gap_probes_reserve=200):
     return table
 
 
-def _parse_rows(rows, offsets, columns, patterns):
+def _parse_rows(
+    rows: Sequence[str], offsets: Sequence[int], columns: Sequence[str], patterns: Sequence[str]
+) -> pd.DataFrame:
     """Rows (CSV strings) -> DataFrame: timestamp, row length, byte offset, selected channels."""
     keep = [c for c in columns if any(re.search(pt, c) for pt in patterns)]
     split = pd.Series(rows).str.split(",")
@@ -131,7 +138,9 @@ def _parse_rows(rows, offsets, columns, patterns):
     return df
 
 
-def _refine_gap(s3, p, lo, ts_lo, hi, ts_hi):
+def _refine_gap(
+    s3: Any, p: dict[str, Any], lo: int, ts_lo: pd.Timestamp, hi: int, ts_hi: pd.Timestamp
+) -> tuple[pd.Timestamp, pd.Timestamp]:
     """Locate a time gap between two byte offsets: (last timestamp before, first after).
 
     Bisection: the gap lies in the half where time advances more per byte than in the other.
@@ -140,7 +149,9 @@ def _refine_gap(s3, p, lo, ts_lo, hi, ts_hi):
     size, rb = p["header"]["size"], p["read_bytes"]
     while hi - lo > 4 * rb:
         mid = (lo + hi) // 2
-        ts_mid = pd.Timestamp(_read_row(s3, p["key"], mid, rb, size)[:TS_LEN])
+        row = _read_row(s3, p["key"], mid, rb, size)
+        assert row is not None, "read past the end of the file"
+        ts_mid = pd.Timestamp(row[:TS_LEN])
         if (ts_mid - ts_lo) / (mid - lo) > (ts_hi - ts_mid) / (hi - mid):
             hi, ts_hi = mid, ts_mid
         else:
@@ -152,7 +163,7 @@ def _refine_gap(s3, p, lo, ts_lo, hi, ts_hi):
     return ts[j], ts[j + 1]
 
 
-def find_gaps(s3, p, samples, min_gap_days):
+def find_gaps(s3: Any, p: dict[str, Any], samples: pd.DataFrame, min_gap_days: float) -> pd.DataFrame:
     """Time gaps longer than min_gap_days.
 
     Neighbouring snapshots are a fixed number of bytes apart; dividing by the row length gives
@@ -180,7 +191,7 @@ def find_gaps(s3, p, samples, min_gap_days):
     return gaps
 
 
-def build_coverage(config, dry_run=False, assume_yes=False):
+def build_coverage(config: Mapping[str, Any], dry_run: bool = False, assume_yes: bool = False) -> None:
     """Sample all files, find gaps, cache results in coverage.out_dir. Skips cached files."""
     cov = config["coverage"]
     out_dir = Path(cov["out_dir"])
@@ -219,7 +230,7 @@ def build_coverage(config, dry_run=False, assume_yes=False):
         )
 
 
-def load_coverage(config):
+def load_coverage(config: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Read cached snapshots (all files) and gaps. No network access."""
     out_dir = Path(config["coverage"]["out_dir"])
     samples = {
@@ -229,7 +240,7 @@ def load_coverage(config):
     return samples, gaps
 
 
-def availability_table(samples, config):
+def availability_table(samples: pd.DataFrame, config: Mapping[str, Any]) -> pd.DataFrame:
     """Channel x month table: % of daylight snapshots with a valid value (not empty, not sentinel).
 
     Daylight = sun elevation > min_sun_elevation_deg, with timestamps read as local time in
@@ -254,7 +265,7 @@ def availability_table(samples, config):
     return table, pd.DataFrame(counts)
 
 
-def short_label(col):
+def short_label(col: str) -> str:
     """Readable channel label for plots, e.g. 'reference_cell_05_poa_irradiance_...' -> 'ref_05_poa'."""
     s = re.sub(r"_(o|inv|meter)_\d+$", "", col)
     for old, new in [
@@ -272,7 +283,7 @@ def short_label(col):
     return s
 
 
-def main():
+def main() -> None:
     setup_logging()
     parser = argparse.ArgumentParser(description="Full-period coverage map via point reads.")
     parser.add_argument("--config", required=True, help="e.g. configs/system_9069.yaml")

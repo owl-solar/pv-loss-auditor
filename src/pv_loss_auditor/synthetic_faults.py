@@ -9,7 +9,7 @@ Simplification: the loss is applied to AC power, not to DC before the inverter c
 clipping the inverter efficiency is nearly constant, and the residuals use only unclipped steps.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -20,7 +20,9 @@ from pv_loss_auditor.validation import require_nonempty
 LOCAL_TZ = "America/New_York"
 
 
-def _blocked_days(index, inverters, config):
+def _blocked_days(
+    index: pd.DatetimeIndex, inverters: Sequence[str], config: Mapping[str, Any]
+) -> pd.DataFrame:
     """Boolean frame (local dates x inverters): True = day inside an excluded real event."""
     s = config["anomalies"]["synthetic"]
     blocked = pd.DataFrame(False, index=index, columns=inverters)
@@ -32,7 +34,7 @@ def _blocked_days(index, inverters, config):
     return blocked
 
 
-def eligible_starts(valid_days, config, window_days):
+def eligible_starts(valid_days: pd.DataFrame, config: Mapping[str, Any], window_days: int) -> pd.DataFrame:
     """True where a fault window may start (rows: local dates, columns: inverters).
 
     valid_days: boolean frame, True = the inverter has a daily feature on that day. A start is
@@ -59,7 +61,9 @@ def plan_faults(valid_days: pd.DataFrame, config: Mapping[str, Any]) -> pd.DataF
     require_nonempty(valid_days, "valid_days")
     s = config["anomalies"]["synthetic"]
     rng = np.random.default_rng(s["seed"])
-    taken = {c: [] for c in valid_days.columns}  # accepted (first, last) row per inverter
+    taken: dict[str, list[tuple[int, int]]] = {
+        c: [] for c in valid_days.columns
+    }  # accepted (first, last) row per inverter
     rows = []
     for w in s["durations_days"]:
         ok = eligible_starts(valid_days, config, w)

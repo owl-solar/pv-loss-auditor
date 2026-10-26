@@ -4,7 +4,7 @@ No Streamlit here, so every number the app shows can be tested. Input is the exp
 `waterfall_monthly` (kWh per local month, see src/pv_loss_auditor/export_dashboard.py).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 import pandas as pd
 
@@ -60,7 +60,7 @@ def price_band(prices: Mapping[str, float]) -> tuple[float, float, float]:
     return prices["low"], prices["base"], prices["high"]
 
 
-def waterfall_steps(monthly, year=None):
+def waterfall_steps(monthly: pd.DataFrame, year: str | None = None) -> pd.DataFrame:
     """Steps for the waterfall chart: nominal, each loss step, metered (kWh), with a check.
 
     year = None gives the whole period. The returned frame has columns label, kwh, kind
@@ -84,7 +84,9 @@ def waterfall_steps(monthly, year=None):
 UNITS = ["GWh", "USD thousand", "% of nominal energy"]
 
 
-def scale(kwh_table, nominal_kwh, unit, usd_per_mwh):
+def scale(
+    kwh_table: pd.DataFrame, nominal_kwh: pd.Series, unit: str, usd_per_mwh: float
+) -> tuple[pd.DataFrame, str, str]:
     """Convert a table in kWh to the unit chosen by the reader.
 
     Returns (table, axis title, number format). "% of nominal energy" divides each row by its own
@@ -115,7 +117,7 @@ STEP_LABELS = {
 }
 
 
-def waterfall_bars(steps, values):
+def waterfall_bars(steps: pd.DataFrame, values: Sequence[float]) -> pd.DataFrame:
     """Geometry of a horizontal waterfall: where every bar starts and how long it is.
 
     steps: frame from waterfall_steps (label, kind); values: the same rows in the unit the reader
@@ -156,12 +158,12 @@ def monthly_cause_share(monthly: pd.DataFrame) -> pd.DataFrame:
     return c.div(monthly["nominal_kwh"], axis=0) * 100
 
 
-def inverter_number(column: str) -> int:
+def inverter_number(column: str) -> str:
     """'p_ac_inv17_kw' -> '17'."""
     return column.split("inv")[1][:2]
 
 
-def failure_groups(pairs, down_days, min_jaccard=0.95):
+def failure_groups(pairs: pd.DataFrame, down_days: pd.DataFrame, min_jaccard: float = 0.95) -> pd.DataFrame:
     """Inverters that fail together: connected groups of pairs with Jaccard >= min_jaccard.
 
     pairs: exported `down_pairs` (a, b, jaccard); down_days: exported frame (dates x inverters,
@@ -170,9 +172,9 @@ def failure_groups(pairs, down_days, min_jaccard=0.95):
     The cause (shared transformer skid, feeder) is not in the data: a hypothesis only.
     """
     strong = pairs[pairs["jaccard"] >= min_jaccard]
-    parent = {}
+    parent: dict[str, str] = {}
 
-    def find(i):
+    def find(i: str) -> str:
         parent.setdefault(i, i)
         while parent[i] != i:
             parent[i] = parent[parent[i]]
@@ -181,7 +183,7 @@ def failure_groups(pairs, down_days, min_jaccard=0.95):
 
     for a, b in zip(strong["a"], strong["b"]):
         parent[find(a)] = find(b)
-    members = {}
+    members: dict[str, list[str]] = {}
     for inverter in parent:
         members.setdefault(find(inverter), []).append(inverter)
     rows = []
@@ -217,7 +219,9 @@ def rolling_median(series: pd.Series, window: int = 61, min_periods: int = 20) -
     return series.asfreq("D").rolling(window, center=True, min_periods=min_periods).median()
 
 
-def detection_rate(by_cell, criterion="far", duration=None):
+def detection_rate(
+    by_cell: pd.DataFrame, criterion: str = "far", duration: int | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Share of events detected per (lost strings, detector) on the test years.
 
     by_cell: exported `anomaly_by_cell` (strings, duration_days, detected, events, criterion,

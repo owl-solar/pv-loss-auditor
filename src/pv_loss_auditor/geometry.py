@@ -8,6 +8,8 @@ mounting config identified". Two irradiance inputs are used for the models:
 All inputs must be on a tz-aware UTC index (see src/pv_loss_auditor/timealign.py).
 """
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 import pvlib
@@ -18,7 +20,7 @@ LOCAL_TZ = "America/New_York"  # only for grouping by local day / hour, never fo
 class Site:
     """Sun position, clear-sky and modelled POA for one location on one UTC time index."""
 
-    def __init__(self, latitude, longitude, altitude, index):
+    def __init__(self, latitude: float, longitude: float, altitude: float, index: pd.DatetimeIndex) -> None:
         self.location = pvlib.location.Location(latitude, longitude, altitude=altitude)
         self.index = index
         self.solpos = self.location.get_solarposition(index)
@@ -27,7 +29,7 @@ class Site:
         self.dni_extra = pvlib.irradiance.get_extra_radiation(index)
         self.airmass = pvlib.atmosphere.get_relative_airmass(self.solpos["apparent_zenith"])
 
-    def components(self, ghi=None):
+    def components(self, ghi: pd.Series | None = None) -> pd.DataFrame:
         """(GHI, DNI, DHI): measured GHI split with Erbs, or clear-sky if ghi is None."""
         if ghi is None:
             cs = self.clearsky
@@ -35,7 +37,9 @@ class Site:
         erbs = pvlib.irradiance.erbs(ghi, self.solpos["zenith"], self.index)
         return ghi, erbs["dni"], erbs["dhi"]
 
-    def poa(self, surface_tilt, surface_azimuth, ghi=None, albedo=0.2):
+    def poa(
+        self, surface_tilt: float, surface_azimuth: float, ghi: pd.Series | None = None, albedo: float = 0.2
+    ) -> pd.Series:
         """Modelled POA global (W/m2), Perez transposition. Tilt/azimuth may be Series (tracker)."""
         g, dni, dhi = self.components(ghi)
         return pvlib.irradiance.get_total_irradiance(
@@ -52,7 +56,9 @@ class Site:
             albedo=albedo,
         )["poa_global"]
 
-    def tracker_orientation(self, axis_tilt_deg, axis_azimuth_deg, max_angle_deg, backtrack, gcr):
+    def tracker_orientation(
+        self, axis_tilt_deg: float, axis_azimuth_deg: float, max_angle_deg: float, backtrack: bool, gcr: float
+    ) -> pd.DataFrame:
         """Surface tilt and azimuth of a single-axis tracker (pvlib); NaN at night -> flat."""
         st = pvlib.tracking.singleaxis(
             self.solpos["apparent_zenith"],
@@ -65,7 +71,7 @@ class Site:
         )
         return st["surface_tilt"].fillna(0), st["surface_azimuth"].fillna(axis_azimuth_deg + 90)
 
-    def clear_points(self, ghi, window_length=30):
+    def clear_points(self, ghi: pd.Series, window_length: int = 30) -> pd.Series:
         """Clear-sky flag per time step (Reno & Hansen, pvlib.clearsky.detect_clearsky).
 
         The method compares mean, max, line length, variability and slope of measured GHI with
@@ -77,23 +83,23 @@ class Site:
             ghi.fillna(0), self.clearsky["ghi"], window_length=window_length, infer_limits=True
         )
 
-    def daylight(self, min_elevation_deg):
+    def daylight(self, min_elevation_deg: float) -> pd.Series:
         return self.solpos["apparent_elevation"] > min_elevation_deg
 
 
-def local_day(index):
+def local_day(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     """Local calendar day of each UTC timestamp (tz-naive dates, for grouping)."""
     return index.tz_convert(LOCAL_TZ).normalize().tz_localize(None)
 
 
-def clear_days(clear, daylight, min_fraction):
+def clear_days(clear: pd.Series, daylight: pd.Series, min_fraction: float) -> pd.DatetimeIndex:
     """Local days on which at least `min_fraction` of the daylight steps are flagged clear."""
     day = local_day(clear.index)
     frac = (clear & daylight).groupby(day).sum() / daylight.groupby(day).sum()
     return frac[frac >= min_fraction].index
 
 
-def fit_metrics(model, measured, mask):
+def fit_metrics(model: pd.Series, measured: pd.Series, mask: pd.Series) -> dict[str, float]:
     """nRMSE and MBE in % of the mean measured value, R2, and number of points used."""
     ok = mask & model.notna() & measured.notna()
     err = model[ok] - measured[ok]
@@ -106,7 +112,14 @@ def fit_metrics(model, measured, mask):
     }
 
 
-def orientation_grid(site, measured, mask, tilts, azimuths, ghi=None):
+def orientation_grid(
+    site: Site,
+    measured: pd.Series,
+    mask: pd.Series,
+    tilts: Sequence[float],
+    azimuths: Sequence[float],
+    ghi: pd.Series | None = None,
+) -> pd.DataFrame:
     """nRMSE (%) of fixed-tilt POA for every (tilt, azimuth): a table, tilts x azimuths."""
     table = pd.DataFrame(
         index=pd.Index(tilts, name="tilt_deg"), columns=pd.Index(azimuths, name="azimuth_deg"), dtype=float
@@ -117,14 +130,14 @@ def orientation_grid(site, measured, mask, tilts, azimuths, ghi=None):
     return table
 
 
-def residual_by_hour(model, measured, mask):
+def residual_by_hour(model: pd.Series, measured: pd.Series, mask: pd.Series) -> pd.Series:
     """Mean (model - measured) per local hour, in % of the overall mean measured value."""
     ok = mask & model.notna() & measured.notna()
     err = (model - measured)[ok]
     return 100 * err.groupby(err.index.tz_convert(LOCAL_TZ).hour).mean() / measured[ok].mean()
 
 
-def sensor_agreement(df, reference, mask):
+def sensor_agreement(df: pd.DataFrame, reference: str, mask: pd.Series) -> pd.DataFrame:
     """Each column vs the reference column on masked steps: r and ratio of sums."""
     rows = []
     for col in df.columns.drop(reference):
@@ -141,7 +154,7 @@ def sensor_agreement(df, reference, mask):
     return pd.DataFrame(rows).set_index("sensor")
 
 
-def clear_day_inverter_summary(ac, days):
+def clear_day_inverter_summary(ac: pd.DataFrame, days: pd.DatetimeIndex) -> pd.DataFrame:
     """Per inverter on the given local days: median and max daily peak (kW), median daily energy
     relative to the median inverter. Equal energies mean equal DC per inverter."""
     sel = ac[local_day(ac.index).isin(days)]

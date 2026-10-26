@@ -14,3 +14,9 @@ repos:
         entry: ruff format
         language: system
         types_or: [python, pyi]
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        types: [python]
+        pass_filenames: false

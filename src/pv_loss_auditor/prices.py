@@ -20,22 +20,23 @@ from pv_loss_auditor.validation import require_positive
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
 
-def _read_sheet(xlsx, sheet_number):
+def _read_sheet(xlsx: zipfile.ZipFile, sheet_number: int) -> dict[str, Any]:
     """All cells of one sheet as {'B8': value}. An xlsx file is a zip of XML files; reading it
     directly avoids a new dependency (openpyxl) for one small table."""
     strings = []
     for si in ET.fromstring(xlsx.read("xl/sharedStrings.xml")).findall("m:si", NS):
         strings.append("".join(t.text or "" for t in si.iter("{" + NS["m"] + "}t")))
     root = ET.fromstring(xlsx.read(f"xl/worksheets/sheet{sheet_number}.xml"))
-    cells = {}
+    cells: dict[Any, Any] = {}
     for c in root.iter("{" + NS["m"] + "}c"):
         v = c.find("m:v", NS)
         if v is not None:
-            cells[c.get("r")] = strings[int(v.text)] if c.get("t") == "s" else float(v.text)
+            text = v.text or ""
+            cells[c.get("r")] = strings[int(text)] if c.get("t") == "s" else float(text)
     return cells
 
 
-def load_avoided_energy_cost(config):
+def load_avoided_energy_cost(config: Mapping[str, Any]) -> pd.DataFrame:
     """Avoided energy cost in USD/MWh by projection year and technology (intermittent sheet)."""
     path = Path(config["price"]["file"])
     with zipfile.ZipFile(path) as outer:

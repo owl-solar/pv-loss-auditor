@@ -5,7 +5,7 @@
 - drift of the reference cells against the class-A pyranometer 02B (year-over-year).
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -44,7 +44,9 @@ def clear_days_from_poa(
     return set(r[(r >= min_r) & (n >= min_steps)].index)
 
 
-def lag_curve(a, b, days, lags, mask=None):
+def lag_curve(
+    a: pd.Series, b: pd.Series, days: pd.DatetimeIndex, lags: Sequence[int], mask: pd.Series | None = None
+) -> pd.Series:
     """Mean over days of corr(a, b shifted by lag steps), for each lag (in steps).
 
     A positive lag shifts b later. mask: optional boolean Series, extra condition on the steps.
@@ -70,7 +72,7 @@ def peak_lag_minutes(curve: pd.Series, step_min: int = 5) -> float:
     return (k + offset) * step_min
 
 
-def gamma_regression(y, g, t, groups):
+def gamma_regression(y: pd.Series, g: pd.Series, t: pd.Series, groups: pd.Series) -> dict[str, float]:
     """Temperature coefficient (%/C) from y = a + b (G - 800) + c (T - 25).
 
     y: normalised power P / (P0 x G/1000); g: POA; t: cell temperature; groups: e.g. year-month.
@@ -91,7 +93,14 @@ def gamma_regression(y, g, t, groups):
     return {"pooled": pooled, "within_month": within, "n": len(df), "y_mean": df["y"].mean()}
 
 
-def gamma_per_inverter(inputs, ac, t_cell, aoi, config, p0_kw):
+def gamma_per_inverter(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    aoi: pd.Series,
+    config: Mapping[str, Any],
+    p0_kw: float,
+) -> pd.DataFrame:
     """gamma for every inverter on steps where the model assumptions hold.
 
     Selection: POA 700-900 W/m2 (narrow band, so G and T are less correlated), AOI < 40 deg
@@ -110,10 +119,10 @@ def gamma_per_inverter(inputs, ac, t_cell, aoi, config, p0_kw):
     return pd.DataFrame(rows).T
 
 
-def load_irradiance_sensors(config, channels):
+def load_irradiance_sensors(config: Mapping[str, Any], channels: Sequence[str]) -> pd.DataFrame:
     """Irradiance channels from the clean dataset, flagged values set to NaN."""
     flags = [f"{t}__{c}" for c in channels for t in ("flag_stale", "flag_range")]
-    data = load_clean(config, columns=channels + flags)
+    data = load_clean(config, columns=[*channels, *flags])
     return pd.DataFrame({c: valid(data, c) for c in channels})
 
 
@@ -141,7 +150,14 @@ def yoy_drift(daily: pd.Series) -> pd.DataFrame:
     return float(np.median(pairs)), float(np.min(pairs)), float(np.max(pairs)), len(pairs)
 
 
-def plateau_steps(ac_raw, rating_kw, min_steps=6, tol_kw=0.5, lo=0.05, hi=0.98):
+def plateau_steps(
+    ac_raw: pd.DataFrame,
+    rating_kw: float,
+    min_steps: int = 6,
+    tol_kw: float = 0.5,
+    lo: float = 0.05,
+    hi: float = 0.98,
+) -> pd.DataFrame:
     """Boolean frame: steps inside a run of >= min_steps nearly constant AC values.
 
     A curtailment (power limit) holds the output on a level below the rating while the sun

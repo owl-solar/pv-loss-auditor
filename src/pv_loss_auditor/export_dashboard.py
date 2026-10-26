@@ -13,7 +13,9 @@ sidebar, so the price band can be changed without a new export. Run from the pro
 import argparse
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -31,7 +33,7 @@ log = logging.getLogger(__name__)
 OUT_DIR = Path("app/data")
 
 
-def _period_labels(table):
+def _period_labels(table: pd.DataFrame) -> pd.DataFrame:
     """Period index -> text ("2021", "2021-06"), because parquet keeps plain columns best."""
     out = table.copy()
     out.index = out.index.astype(str)
@@ -39,7 +41,9 @@ def _period_labels(table):
     return out
 
 
-def waterfall_tables(inputs, ac, t_cell, config, gamma):
+def waterfall_tables(
+    inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Mapping[str, Any], gamma: float
+) -> dict[str, pd.DataFrame]:
     """Waterfall in kWh per month (the app sums months into years) and the DC-loss sensitivity.
 
     The closure of every month is checked here, so a broken export cannot be published.
@@ -50,7 +54,9 @@ def waterfall_tables(inputs, ac, t_cell, config, gamma):
     return {"waterfall_monthly": _period_labels(monthly), "dc_loss_sensitivity": sens}
 
 
-def kpi_tables(inputs, ac, t_cell, config, gamma):
+def kpi_tables(
+    inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Mapping[str, Any], gamma: float
+) -> tuple[dict[str, pd.DataFrame], float]:
     """KPIs and the revised availability, per month and per year, plus T_ref of variant C."""
     base = inputs["daylight"] & inputs["poa_wm2"].notna() & t_cell.notna()
     t_ref = kpi.weighted_t_ref(t_cell, inputs["poa_wm2"], base)
@@ -67,7 +73,9 @@ def kpi_tables(inputs, ac, t_cell, config, gamma):
     return tables, t_ref
 
 
-def outage_tables(inputs, ac, config):
+def outage_tables(
+    inputs: pd.DataFrame, ac: pd.DataFrame, config: Mapping[str, Any]
+) -> dict[str, pd.DataFrame]:
     """Down-days per inverter (local date x inverter), inverter pairs and the episode table."""
     is_down = outages.down_days(ac, inputs["poa_wm2"], config)
     ratio = outages.inverter_meter_ratio(inputs, ac, config)
@@ -83,7 +91,9 @@ def outage_tables(inputs, ac, config):
     }
 
 
-def degradation_tables(inputs, ac, t_cell, config):
+def degradation_tables(
+    inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Mapping[str, Any]
+) -> dict[str, pd.DataFrame]:
     """Phase 4: daily series for RdTools, YoY rates, soiling, external weather, shortfall split.
 
     Same calls as notebooks/04_degradation_soiling.ipynb (computations live in src/pv_loss_auditor/degradation.py);
@@ -120,7 +130,9 @@ def degradation_tables(inputs, ac, t_cell, config):
     return out
 
 
-def anomaly_tables(inputs, ac, t_cell, config):
+def anomaly_tables(
+    inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Mapping[str, Any]
+) -> dict[str, pd.DataFrame]:
     """Phase 5: detector comparison on SYNTHETIC string faults and the real events.
 
     Same steps as notebooks/05_anomaly_detection.ipynb. Everything that depends on the injected
@@ -201,7 +213,7 @@ def anomaly_tables(inputs, ac, t_cell, config):
     return out
 
 
-def meta(config, t_ref):
+def meta(config: Mapping[str, Any], t_ref: float) -> dict[str, Any]:
     """Scalars the app shows next to the numbers: price assumption, period, T_ref."""
     base, low, high = prices.price_usd_per_mwh(config)
     return {
@@ -216,7 +228,7 @@ def meta(config, t_ref):
     }
 
 
-def write_tables(tables, out_dir):
+def write_tables(tables: Mapping[str, pd.DataFrame], out_dir: Path) -> dict[str, float]:
     """Save every table as parquet (index kept) and return the sizes in kB."""
     out_dir.mkdir(parents=True, exist_ok=True)
     sizes = {}
@@ -227,7 +239,7 @@ def write_tables(tables, out_dir):
     return sizes
 
 
-def main():
+def main() -> None:
     setup_logging()
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--config", required=True)

@@ -12,7 +12,7 @@ invisible here (it is covered by the waterfall and Phase 4).
 """
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 import numpy as np
@@ -162,7 +162,9 @@ def day_labels(index: pd.MultiIndex, events: pd.DataFrame, config: Config) -> pd
     return lab
 
 
-def evaluate_flags(flag, labels, events, config, min_flag_days=None):
+def evaluate_flags(
+    flag: pd.Series, labels: pd.Series, events: pd.DataFrame, config: Config, min_flag_days: int | None = None
+) -> tuple[dict[str, Any], pd.DataFrame]:
     """Day-level and event-level metrics for a boolean flag Series (same index as labels).
 
     Day level: precision / recall over 'fault' and 'clean' rows ('excluded' rows are ignored).
@@ -223,7 +225,9 @@ def rule_score(x: pd.DataFrame, sigma: float | None = None) -> pd.Series:
     return (-d / sigma).rename("score")
 
 
-def split_by_year(index, events, labels, tune_until):
+def split_by_year(
+    index: pd.MultiIndex, events: pd.DataFrame, labels: pd.Series, tune_until: str
+) -> tuple[Any, Any, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Masks for tuning (date <= tune_until) and test rows; events by where they lie entirely.
 
     Events that straddle tune_until belong to neither set and their fault days are relabelled
@@ -243,8 +247,17 @@ def split_by_year(index, events, labels, tune_until):
 
 
 def tune_and_report(
-    score, thresholds, labels, tune, test, events_tune, events_test, config, criterion="f1", far_max=0.01
-):
+    score: pd.Series,
+    thresholds: Mapping[float, float],
+    labels: pd.Series,
+    tune: Any,
+    test: Any,
+    events_tune: pd.DataFrame,
+    events_test: pd.DataFrame,
+    config: Config,
+    criterion: str = "f1",
+    far_max: float = 0.01,
+) -> tuple[Any, ...]:
     """Pick a threshold on the tuning rows, report on the test rows.
 
     thresholds: {parameter value: score threshold} (for the forest the parameter is the
@@ -289,7 +302,7 @@ def robust_sigma(d: pd.Series) -> float:
     return 1.4826 * (d - d.median()).abs().median()
 
 
-def detector_scores(x, sigma, config):
+def detector_scores(x: pd.DataFrame, sigma: float, config: Config) -> dict[str, pd.Series]:
     """Score of every row of x for the three detectors (higher = more anomalous).
 
     The two forests differ in the features they see (all four deviations, or the two named in
@@ -303,7 +316,14 @@ def detector_scores(x, sigma, config):
     }
 
 
-def run_detectors(x, labels, events, config, sigma, criteria=("far", "f1")):
+def run_detectors(
+    x: pd.DataFrame,
+    labels: pd.Series,
+    events: pd.DataFrame,
+    config: Config,
+    sigma: float,
+    criteria: Sequence[str] = ("far", "f1"),
+) -> tuple[dict[str, Any], dict[str, Any]]:
     """Tune every detector on the early years and report on the later years, per criterion.
 
     Returns (results, split): results[criterion][detector] = the tuple of tune_and_report
@@ -313,7 +333,7 @@ def run_detectors(x, labels, events, config, sigma, criteria=("far", "f1")):
     fo = config["anomalies"]["forest"]
     tune, test, ev_tune, ev_test, lab = split_by_year(x.index, events, labels, fo["tune_until"])
     scores = detector_scores(x, sigma, config)
-    results = {}
+    results: dict[str, dict[str, Any]] = {}
     for criterion in criteria:
         results[criterion] = {}
         for name, score in scores.items():
@@ -336,7 +356,7 @@ def run_detectors(x, labels, events, config, sigma, criteria=("far", "f1")):
     return results, {"lab": lab, "ev_tune": ev_tune, "ev_test": ev_test}
 
 
-def summary_table(results):
+def summary_table(results: dict[str, Any]) -> pd.DataFrame:
     """Test-year summary, one row per (criterion, detector): the chosen parameter, precision,
     recall (days, events), false-alarm days and rate, and the median day of the first flag."""
     rows = []
@@ -359,7 +379,7 @@ def summary_table(results):
     return pd.DataFrame(rows)
 
 
-def detection_by_cell(results):
+def detection_by_cell(results: dict[str, Any]) -> pd.DataFrame:
     """Detected events per (criterion, detector, lost strings, fault duration) on the test years."""
     parts = []
     for criterion, by_detector in results.items():
@@ -370,7 +390,7 @@ def detection_by_cell(results):
     return pd.concat(parts, ignore_index=True)
 
 
-def flags_in_windows(flags, windows):
+def flags_in_windows(flags: Mapping[str, pd.Series], windows: Sequence[tuple[str, str, str]]) -> pd.DataFrame:
     """Flagged days of each detector inside given (inverter, start, end) windows (REAL events).
 
     flags: {detector: boolean Series on the (date, inverter) index}. One row per window with the

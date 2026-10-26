@@ -15,7 +15,9 @@ import os
 import re
 import threading
 import time
+from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import boto3
 import pandas as pd
@@ -45,12 +47,12 @@ PARQUET_META_TABLES = [
 DATA_PRIZE_PREFIX = "pvdaq/2023-solar-data-prize/"
 
 
-def get_s3_client():
+def get_s3_client() -> Any:
     """S3 client that sends unsigned requests, i.e. anonymous public read access."""
     return boto3.client("s3", config=Config(signature_version=UNSIGNED))
 
 
-def list_keys(s3, prefix):
+def list_keys(s3: Any, prefix: str) -> list[tuple[str, int]]:
     """Return (key, size_bytes) for every object under a prefix (handles pagination)."""
     keys = []
     paginator = s3.get_paginator("list_objects_v2")
@@ -62,7 +64,7 @@ def list_keys(s3, prefix):
     return keys
 
 
-def _download(s3, key, out_root):
+def _download(s3: Any, key: str, out_root: str | Path) -> Path:
     """Download one object, mirroring its S3 path under out_root. Skips existing files."""
     local_path = Path(out_root) / key
     if not local_path.exists():
@@ -71,7 +73,7 @@ def _download(s3, key, out_root):
     return local_path
 
 
-def download_metadata(out_root="data/raw"):
+def download_metadata(out_root: str | Path = "data/raw") -> list[Path]:
     """Download all PVDAQ metadata files (no time series). Returns list of local paths."""
     s3 = get_s3_client()
     keys = [SYSTEMS_CSV_KEY]
@@ -98,7 +100,7 @@ bytes_transferred = 0  # running total in this Python session, for traffic repor
 _traffic_lock = threading.Lock()  # src/pv_loss_auditor/coverage.py reads in parallel threads
 
 
-def _get_range(s3, key, start, end):
+def _get_range(s3: Any, key: str, start: int, end: int) -> bytes:
     """Download bytes [start, end) of an S3 object and add them to the traffic counter."""
     global bytes_transferred
     if end <= start:
@@ -109,7 +111,7 @@ def _get_range(s3, key, start, end):
     return body
 
 
-def read_header(s3, key):
+def read_header(s3: Any, key: str) -> tuple[list[str], int, int]:
     """Return (column names, byte offset of the first data row, file size in bytes)."""
     size = s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
     buf = b""
@@ -121,7 +123,7 @@ def read_header(s3, key):
     return columns, len(line) + 1, size
 
 
-def _cached_header(s3, key, cache_path):
+def _cached_header(s3: Any, key: str, cache_path: str | Path) -> dict[str, Any]:
     """read_header() with a local JSON cache, so headers are fetched only once."""
     cache_path = Path(cache_path)
     cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
@@ -133,7 +135,7 @@ def _cached_header(s3, key, cache_path):
     return cache[key]
 
 
-def find_offset(s3, key, data_start, size, ts):
+def find_offset(s3: Any, key: str, data_start: int, size: int, ts: str) -> int:
     """Byte offset of the first row whose timestamp is >= ts ('YYYY-MM-DD HH:MM:SS').
 
     Binary search on byte positions. A position usually falls inside a row, so each probe
@@ -169,14 +171,14 @@ def find_offset(s3, key, data_start, size, ts):
     return size  # no row >= ts: ts is after the end of the file
 
 
-def _month_bounds(month):
+def _month_bounds(month: str) -> tuple[str, str]:
     """'2019-06' -> ('2019-06-01 00:00:00', '2019-07-01 00:00:00')."""
     period = pd.Period(month, freq="M")
     fmt = "%Y-%m-%d %H:%M:%S"
     return period.start_time.strftime(fmt), (period + 1).start_time.strftime(fmt)
 
 
-def plan_sample(s3, config):
+def plan_sample(s3: Any, config: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Find the byte range of every (file, month) part that is not cached yet.
 
     Costs only headers and binary-search probes (a few hundred KB), no data rows.
@@ -211,7 +213,7 @@ def plan_sample(s3, config):
     return parts
 
 
-def _parse_rows(raw, columns, channels, ts_col):
+def _parse_rows(raw: bytes, columns: Sequence[str], channels: Mapping[str, str], ts_col: str) -> pd.DataFrame:
     """Parse CSV rows (bytes, whole rows, no header line).
 
     columns : all column names of the file, in file order (the slice has no header)
@@ -224,12 +226,12 @@ def _parse_rows(raw, columns, channels, ts_col):
     return df[list(channels.values())]
 
 
-def _parse_slice(raw, part, ts_col):
+def _parse_slice(raw: bytes, part: dict[str, Any], ts_col: str) -> pd.DataFrame:
     """Parse a downloaded CSV slice of a sample part (see plan_sample)."""
     return _parse_rows(raw, part["columns"], part["channels"], ts_col)
 
 
-def download_sample(config, dry_run=False, assume_yes=False):
+def download_sample(config: Mapping[str, Any], dry_run: bool = False, assume_yes: bool = False) -> list[Path]:
     """Download the configured months x channels of each file and save them as parquet.
 
     Safety for mobile internet: prints the exact size before downloading, refuses anything
@@ -286,7 +288,7 @@ def download_sample(config, dry_run=False, assume_yes=False):
 MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 
 
-def resolve_channels(columns, rules):
+def resolve_channels(columns: Sequence[str], rules: Sequence[Mapping[str, str]]) -> dict[str, str]:
     """Map raw CSV column names to project names with the regex rules of the config.
 
     Fails loudly if a rule matches no column or two raw columns get the same project name,
@@ -301,6 +303,7 @@ def resolve_channels(columns, rules):
         for column, match in hits:
             if column in mapping:
                 raise ValueError(f"Column {column!r} matched by two rules.")
+            assert match is not None  # `hits` holds only columns that matched
             mapping[column] = rule["name"].format(*match.groups())
     names = list(mapping.values())
     duplicates = sorted({n for n in names if names.count(n) > 1})
@@ -309,7 +312,7 @@ def resolve_channels(columns, rules):
     return mapping
 
 
-def _write_json_atomic(path, obj):
+def _write_json_atomic(path: str | Path, obj: Any) -> None:
     """Write JSON to a temp file, then replace the target: a crash never leaves a half file."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -318,18 +321,18 @@ def _write_json_atomic(path, obj):
     os.replace(tmp, path)  # atomic on the same drive
 
 
-def _manifest_path(period):
+def _manifest_path(period: Mapping[str, Any]) -> Path:
     return Path(period["out_dir"]) / "manifest.json"
 
 
-def _load_manifest(period):
+def _load_manifest(period: Mapping[str, Any]) -> dict[str, Any]:
     path = _manifest_path(period)
     if path.exists():
         return json.loads(path.read_text(encoding="utf-8"))
     return {"files": {}}
 
 
-def _get_range_retry(s3, key, start, end, retries):
+def _get_range_retry(s3: Any, key: str, start: int, end: int, retries: int) -> bytes:
     """_get_range with retries and growing pauses (mobile connections drop).
 
     Also treats a short read as an error: S3 must return exactly end - start bytes.
@@ -344,14 +347,14 @@ def _get_range_retry(s3, key, start, end, retries):
             if attempt == retries:
                 raise
             wait = 2 ** (attempt + 1)
-            log.info(
-                f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} in {wait} s",
-                flush=True,
-            )
+            log.info(f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} in {wait} s")
             time.sleep(wait)
+    raise AssertionError("unreachable: the last attempt returns or raises")
 
 
-def _read_chunks(s3, key, start, size, chunk_bytes, retries):
+def _read_chunks(
+    s3: Any, key: str, start: int, size: int, chunk_bytes: int, retries: int
+) -> Iterator[tuple[int, bytes]]:
     """Yield (offset, block) from byte `start` to the end of the file.
 
     Every block consists of WHOLE rows only: it starts at the beginning of a row and ends right
@@ -375,7 +378,9 @@ def _read_chunks(s3, key, start, size, chunk_bytes, retries):
         yield pos - len(carry), carry
 
 
-def plan_period(s3, config, files=None):
+def plan_period(
+    s3: Any, config: Mapping[str, Any], files: Sequence[str] | None = None
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Prepare the download: per file the start offset, the resume offset and the exact size.
 
     New file -> binary search for the first row of period.start (a few hundred KB).
@@ -435,7 +440,14 @@ def plan_period(s3, config, files=None):
 class _MonthSaver:
     """Turns the raw rows of one month into a parquet file and records it in the manifest."""
 
-    def __init__(self, label, plan, config, manifest, progress):
+    def __init__(
+        self,
+        label: str,
+        plan: dict[str, Any],
+        config: Mapping[str, Any],
+        manifest: dict[str, Any],
+        progress: dict[str, Any],
+    ) -> None:
         self.label, self.plan, self.manifest, self.progress = label, plan, manifest, progress
         self.name, self.entry = plan["name"], plan["entry"]
         self.ts_col = config["data"]["timestamp_column"]
@@ -443,7 +455,7 @@ class _MonthSaver:
         self.manifest_path = _manifest_path(config["period"])
         self.traffic_mark = bytes_transferred  # traffic already counted for this file
 
-    def save(self, month, lines, start, end, at_eof):
+    def save(self, month: str, lines: list[bytes], start: int, end: int, at_eof: bool) -> None:
         df = _parse_rows(b"".join(lines), self.plan["header"]["columns"], self.plan["mapping"], self.ts_col)
         # Sanity checks: sorted rows, all inside the month (stop instead of saving bad data).
         if not df.index.is_monotonic_increasing:
@@ -474,7 +486,7 @@ class _MonthSaver:
         _write_json_atomic(self.manifest_path, self.manifest)
         self._print_progress(month, end - start, end)
 
-    def _print_progress(self, month, month_bytes, end):
+    def _print_progress(self, month: str, month_bytes: int, end: int) -> None:
         p = self.progress
         p["done"] += month_bytes
         file_total = self.plan["size"] - self.entry["start_offset"]
@@ -486,18 +498,26 @@ class _MonthSaver:
             f"file {file_done / 1e6:6.1f}/{file_total / 1e6:.1f} MB "
             f"({100 * file_done / file_total:3.0f}%) | "
             f"total {p['done'] / 1e6:7.1f}/{p['total'] / 1e6:.1f} MB | "
-            f"{speed / 1e6:.2f} MB/s | ETA {eta_min:.0f} min",
-            flush=True,
+            f"{speed / 1e6:.2f} MB/s | ETA {eta_min:.0f} min"
         )
 
 
-def _download_file(s3, plan, label, config, manifest, progress):
+def _download_file(
+    s3: Any,
+    plan: dict[str, Any],
+    label: str,
+    config: Mapping[str, Any],
+    manifest: dict[str, Any],
+    progress: dict[str, Any],
+) -> None:
     """Download one file from its resume offset to the end, saving each month when complete."""
     period = config["period"]
     saver = _MonthSaver(label, plan, config, manifest, progress)
     chunk_bytes = int(period["chunk_mb"] * 1024 * 1024)
     key = plan["entry"]["key"]
-    cur_month, month_start, lines = None, None, []
+    cur_month: str | None = None
+    month_start = 0  # set together with cur_month; the initial value is never read
+    lines: list[bytes] = []
     offset = plan["resume"]  # file offset of the row being looked at
     for block_offset, block in _read_chunks(
         s3, key, plan["resume"], plan["size"], chunk_bytes, period["retries"]
@@ -523,7 +543,7 @@ def _download_file(s3, plan, label, config, manifest, progress):
         saver.save(cur_month, lines, month_start, offset, at_eof=True)
 
 
-def period_report(config):
+def period_report(config: Mapping[str, Any]) -> pd.DataFrame:
     """One row per file from the manifest: months, rows, MB, first/last timestamp, gaps."""
     manifest = _load_manifest(config["period"])
     rows = []
@@ -554,7 +574,9 @@ def period_report(config):
     return pd.DataFrame(rows)
 
 
-def download_period(config, files=None, dry_run=False):
+def download_period(
+    config: Mapping[str, Any], files: Sequence[str] | None = None, dry_run: bool = False
+) -> None:
     """Download the analysis period of the configured files, resuming after the last saved month.
 
     The exact size is known before the first byte of data is requested (file size minus the
@@ -591,8 +613,7 @@ def download_period(config, files=None, dry_run=False):
     except BaseException:
         log.warning(
             "Interrupted. Run the same command again: it continues after the last saved "
-            "month, saved months are not downloaded again.",
-            flush=True,
+            "month, saved months are not downloaded again."
         )
         raise
 
@@ -603,7 +624,7 @@ def download_period(config, files=None, dry_run=False):
     log.info(f"Transferred in this run: {bytes_transferred / 1e6:.1f} MB")
 
 
-def main():
+def main() -> None:
     setup_logging()
     parser = argparse.ArgumentParser(description="Download configured PVDAQ data.")
     parser.add_argument("--config", required=True, help="e.g. configs/system_9069.yaml")
