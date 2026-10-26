@@ -1,5 +1,7 @@
 # PV Loss Auditor
 
+[![CI](https://github.com/owl-solar/pv-loss-auditor/actions/workflows/ci.yml/badge.svg)](https://github.com/owl-solar/pv-loss-auditor/actions/workflows/ci.yml)
+
 **How much energy did a 38.7 MWp PV plant lose in 43 months, why, and what is it worth?**
 
 An audit of a utility-scale plant from public measured data: actual generation against a weather-corrected

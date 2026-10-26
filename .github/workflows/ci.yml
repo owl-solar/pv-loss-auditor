@@ -1,0 +1,47 @@
+name: CI
+
+# Lint and test on every push and pull request. Only the small fixtures in tests/fixtures/ are used:
+# the workflow never downloads PVDAQ, Open-Meteo or price data.
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MPLBACKEND: Agg          # RdTools imports matplotlib; no display on the runner
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"      # the version the pinned dependencies were tested with
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install the package with test tools
+        # "data" is needed because the modules import boto3 / requests at import time (no calls are made).
+        run: pip install -e ".[data,dev]"
+
+      - name: Lint (ruff check)
+        run: ruff check .
+
+      - name: Formatting (ruff format --check)
+        run: ruff format --check .
+
+      - name: Tests with coverage
+        run: pytest --cov=pv_loss_auditor --cov-report=term-missing
+
+      - name: Coverage floor for the KPI and loss modules
+        # The aim is not a high total (data download code is not testable offline) but that the
+        # calculation modules stay covered.
+        run: coverage report --include="*/pv_loss_auditor/kpi.py,*/pv_loss_auditor/losses.py,*/pv_loss_auditor/model.py" --fail-under=95
