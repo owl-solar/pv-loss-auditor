@@ -7,8 +7,8 @@ the Georgia Power avoided energy cost from the 2025 projections filed with the G
 2026-2045, not a realised price and not the plant's PPA price; see `price:` in the config.
 """
 
-import zipfile
 import xml.etree.ElementTree as ET
+import zipfile
 from pathlib import Path
 
 import pandas as pd
@@ -21,10 +21,10 @@ def _read_sheet(xlsx, sheet_number):
     directly avoids a new dependency (openpyxl) for one small table."""
     strings = []
     for si in ET.fromstring(xlsx.read("xl/sharedStrings.xml")).findall("m:si", NS):
-        strings.append("".join(t.text or "" for t in si.iter("{%s}t" % NS["m"])))
+        strings.append("".join(t.text or "" for t in si.iter("{" + NS["m"] + "}t")))
     root = ET.fromstring(xlsx.read(f"xl/worksheets/sheet{sheet_number}.xml"))
     cells = {}
-    for c in root.iter("{%s}c" % NS["m"]):
+    for c in root.iter("{" + NS["m"] + "}c"):
         v = c.find("m:v", NS)
         if v is not None:
             cells[c.get("r")] = strings[int(v.text)] if c.get("t") == "s" else float(v.text)

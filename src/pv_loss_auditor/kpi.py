@@ -21,8 +21,13 @@ import pandas as pd
 
 from pv_loss_auditor.geometry import LOCAL_TZ
 from pv_loss_auditor.model import inverter_dc_kw
-from pv_loss_auditor.validation import (check_poa, require_aligned, require_choice, require_nonempty,
-                                        require_positive)
+from pv_loss_auditor.validation import (
+    check_poa,
+    require_aligned,
+    require_choice,
+    require_nonempty,
+    require_positive,
+)
 
 log = logging.getLogger(__name__)
 

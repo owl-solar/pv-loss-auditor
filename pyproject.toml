@@ -38,6 +38,7 @@ dev = [
     "pytest==9.1.1",
     "pytest-cov==7.1.0",
     "ruff==0.17.2",
+    "pre-commit==4.7.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -48,3 +49,22 @@ testpaths = ["tests"]
 # `pythonpath` lets the tests import the package from src/ and `scripts` from the root
 # even without `pip install -e .`.
 pythonpath = ["src", "."]
+
+[tool.ruff]
+line-length = 110                  # the code base was written at about this width
+target-version = "py313"
+extend-exclude = ["notebooks"]     # notebooks keep their outputs; their logic lives in src/
+
+[tool.ruff.lint]
+# E/W pycodestyle, F pyflakes, I import order, B bugbear, UP pyupgrade, SIM simplifications that keep the code readable.
+select = ["E", "W", "F", "I", "B", "UP"]
+# E501: the formatter wraps code; long comments and strings (explanations of methodology) stay readable as they are.
+ignore = [
+    "E501",
+    # B905: several zips deliberately stop at the shorter input (palette x columns, names x groups);
+    # strict=True would raise, strict=False would only restate the current behaviour.
+    "B905",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pv_loss_auditor", "scripts", "conftest", "common"]

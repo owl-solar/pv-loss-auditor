@@ -1,0 +1,16 @@
+# Runs the same checks as CI before each commit. Install once:  pre-commit install
+# "local" hooks call the ruff pinned in the virtual environment (pyproject.toml, dev extra), so
+# nothing is downloaded when the hooks run.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: ruff check --fix
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format
+        entry: ruff format
+        language: system
+        types_or: [python, pyi]

@@ -1,10 +1,10 @@
 """Tests of the peer-normalised residuals on SYNTHETIC data (only for testing the code)."""
 
+import copy
+
 import numpy as np
 import pandas as pd
 import pytest
-
-import copy
 
 from pv_loss_auditor.anomalies import daily_features, deviation_from_own_norm, relative_residual
 from pv_loss_auditor.config import load_config
@@ -228,8 +228,14 @@ def test_robust_sigma_ignores_rare_outliers():
 
 
 def test_run_detectors_finds_obvious_faults_and_returns_all_tables():
-    from pv_loss_auditor.anomalies import (DETECTORS, detection_by_cell, flags_in_windows, robust_sigma,
-                               run_detectors, summary_table)
+    from pv_loss_auditor.anomalies import (
+        DETECTORS,
+        detection_by_cell,
+        flags_in_windows,
+        robust_sigma,
+        run_detectors,
+        summary_table,
+    )
     x, labels, events = _panel()
     sigma = robust_sigma(x["dev_rel_median"])
     results, split = run_detectors(x, labels, events, CONFIG, sigma, criteria=("far",))

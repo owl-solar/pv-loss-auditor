@@ -7,10 +7,10 @@ Bucket layout (s3://oedi-data-lake/pvdaq/), as found on inspection:
 - 2023-solar-data-prize/<id>_OEDI/   six detailed systems, each with metadata/*.json
 """
 
-import logging
 import argparse
 import io
 import json
+import logging
 import os
 import re
 import threading

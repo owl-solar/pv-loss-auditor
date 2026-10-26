@@ -143,7 +143,7 @@ st.info(
     f"which starts on 2020-09-22, is probably too narrow. The effect on the reported numbers is small: "
     f"{len(outside_forest)} days are {len(outside_forest) / clean_days_tuning:.1%} of the {clean_days_tuning:,} clean "
     "inverter-days of the tuning years, against a budget of 1 %.", icon="🔍")
-lines = [f"inverter {dd.inverter_number(r.inverter)}: rule {getattr(r, 'rule_baseline')} of {r.days} days, forests "
+lines = [f"inverter {dd.inverter_number(r.inverter)}: rule {r.rule_baseline} of {r.days} days, forests "
          f"{r.forest_4_features} / {r.forest_2_features}" for r in real.rename(columns=lambda c: c.replace(", ", "_").replace(" ", "_").replace("(", "").replace(")", "")).itertuples()]
 st.caption("Flagged days inside each real event: " + "; ".join(lines) + ". A 61-day norm window absorbed the 45-day "
            "event of inverter 30 (the window was widened to 121 days for this reason). The two steps of this event "

@@ -1,6 +1,5 @@
 """Tests of src/pv_loss_auditor/openmeteo.py without internet (requests.get is replaced) on SYNTHETIC weather."""
 
-import numpy as np
 import pandas as pd
 import pytest
 

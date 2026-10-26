@@ -10,9 +10,9 @@ Precision of (2) is coarse: ~10 daylight snapshots per month -> about +-15 perce
 Good enough to choose an analysis period, not to compute availability KPIs.
 """
 
-import logging
 import argparse
 import json
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -177,7 +177,8 @@ def build_coverage(config, dry_run=False, assume_yes=False):
     for p in todo:
         size, rb = p["header"]["size"], p["read_bytes"]
         with ThreadPoolExecutor(max_workers=cov["workers"]) as ex:
-            rows = list(ex.map(lambda off: _read_row(s3, p["key"], off, rb, size), p["offsets"]))
+            # The lambda runs inside this iteration (list() consumes the map before the loop moves on).
+            rows = list(ex.map(lambda off: _read_row(s3, p["key"], off, rb, size), p["offsets"]))  # noqa: B023
         ok = [(r, o) for r, o in zip(rows, p["offsets"]) if r]
         samples = _parse_rows([r for r, _ in ok], [o for _, o in ok], p["header"]["columns"],
                               cov["channel_patterns"][p["name"]])

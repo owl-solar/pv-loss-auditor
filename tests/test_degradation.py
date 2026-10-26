@@ -3,7 +3,6 @@
 Expected values are worked out by hand (see the comments), not copied from the code output.
 """
 
-import copy
 
 import numpy as np
 import pandas as pd

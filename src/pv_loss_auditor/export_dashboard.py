@@ -10,16 +10,17 @@ sidebar, so the price band can be changed without a new export. Run from the pro
     python -m pv_loss_auditor.export_dashboard --config configs/system_9069.yaml
 """
 
-import logging
 import argparse
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 
 from pv_loss_auditor import anomalies as an
 from pv_loss_auditor import degradation as dg
-from pv_loss_auditor import kpi, losses, openmeteo as om, outages, prices
+from pv_loss_auditor import kpi, losses, outages, prices
+from pv_loss_auditor import openmeteo as om
 from pv_loss_auditor.config import load_config
 from pv_loss_auditor.logs import setup_logging
 from pv_loss_auditor.model import cell_temperature, load_inputs, weighted_gamma

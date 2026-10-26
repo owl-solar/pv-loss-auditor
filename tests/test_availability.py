@@ -4,7 +4,6 @@ Four inverters, each delivering 0.95 x the model (E = expected energy of one inv
 the day). The meter is set by hand, so the true state of every scenario is known.
 """
 
-import numpy as np
 import pandas as pd
 import pytest
 

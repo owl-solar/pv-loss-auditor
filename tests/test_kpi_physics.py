@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pv_loss_auditor import kpi
 from conftest import hourly_plant, plant_config
+from pv_loss_auditor import kpi
 
 GAMMA = -0.004
 

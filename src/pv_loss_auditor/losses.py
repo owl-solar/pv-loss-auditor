@@ -35,7 +35,13 @@ import pandas as pd
 from pv_loss_auditor.kpi import _period, inverter_states, step_hours
 from pv_loss_auditor.loss_groups import CAUSES, STEPS, by_cause  # noqa: F401  (re-exported: losses.STEPS etc.)
 from pv_loss_auditor.model import dc_loss_fraction, expected_power, inverter_dc_kw, weighted_gamma
-from pv_loss_auditor.validation import check_poa, require_aligned, require_choice, require_nonempty, require_positive
+from pv_loss_auditor.validation import (
+    check_poa,
+    require_aligned,
+    require_choice,
+    require_nonempty,
+    require_positive,
+)
 
 log = logging.getLogger(__name__)
 
