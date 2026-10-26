@@ -9,8 +9,13 @@ Simplification: the loss is applied to AC power, not to DC before the inverter c
 clipping the inverter efficiency is nearly constant, and the residuals use only unclipped steps.
 """
 
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 import pandas as pd
+
+from pv_loss_auditor.validation import require_nonempty
 
 LOCAL_TZ = "America/New_York"
 
@@ -45,12 +50,13 @@ def eligible_starts(valid_days, config, window_days):
     return (share >= s["min_valid_share"]) & (near_block == 0)
 
 
-def plan_faults(valid_days, config):
+def plan_faults(valid_days: pd.DataFrame, config: Mapping[str, Any]) -> pd.DataFrame:
     """Random fault events: inverter, start, end, duration_days, strings, loss_fraction, is_synthetic.
 
     For every duration and every level, events_per_level windows are drawn from the eligible
     starts with a fixed seed. Two windows of the same inverter never overlap (nor touch).
     """
+    require_nonempty(valid_days, "valid_days")
     s = config["anomalies"]["synthetic"]
     rng = np.random.default_rng(s["seed"])
     taken = {c: [] for c in valid_days.columns}  # accepted (first, last) row per inverter
@@ -86,8 +92,13 @@ def plan_faults(valid_days, config):
     return pd.DataFrame(rows)
 
 
-def inject_faults(ac, events):
+def inject_faults(ac: pd.DataFrame, events: pd.DataFrame) -> pd.DataFrame:
     """Copy of `ac` (kW, columns = inverters) with the events applied. NaN stays NaN."""
+    unknown = sorted(set(events["inverter"]) - set(ac.columns))
+    if unknown:
+        raise ValueError(f"fault events name inverters that are not in ac: {unknown}")
+    if ((events["loss_fraction"] < 0) | (events["loss_fraction"] > 1)).any():
+        raise ValueError("loss_fraction of a fault must be between 0 and 1")
     out = ac.copy()
     local_day = ac.index.tz_convert(LOCAL_TZ).normalize().tz_localize(None)
     for e in events.itertuples():

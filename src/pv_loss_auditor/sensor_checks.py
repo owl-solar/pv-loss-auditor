@@ -5,6 +5,9 @@
 - drift of the reference cells against the class-A pyranometer 02B (year-over-year).
 """
 
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pvlib
@@ -14,7 +17,7 @@ from pv_loss_auditor.geometry import LOCAL_TZ, local_day
 from pv_loss_auditor.model import valid
 
 
-def sun_and_aoi(index, config):
+def sun_and_aoi(index: pd.DatetimeIndex, config: Mapping[str, Any]) -> pd.DataFrame:
     """Sun azimuth (deg) and angle of incidence on the fixed 20/180 plane (deg), UTC index."""
     s, mount = config["system"], config["mount"]
     sun = pvlib.solarposition.get_solarposition(
@@ -26,7 +29,9 @@ def sun_and_aoi(index, config):
     return pd.DataFrame({"sun_azimuth_deg": sun["azimuth"], "aoi_deg": aoi})
 
 
-def clear_days_from_poa(poa, poa_clearsky, daylight, min_r=0.998, min_steps=130):
+def clear_days_from_poa(
+    poa: pd.Series, poa_clearsky: pd.Series, daylight: pd.Series, min_r: float = 0.998, min_steps: int = 130
+) -> pd.DatetimeIndex:
     """Local days whose measured POA follows the clear-sky POA curve (Pearson r >= min_r).
 
     Needs no GHI (GHI exists only until 2022-03), so it works for the whole period.
@@ -55,7 +60,7 @@ def lag_curve(a, b, days, lags, mask=None):
     return pd.Series(out)
 
 
-def peak_lag_minutes(curve, step_min=5):
+def peak_lag_minutes(curve: pd.Series, step_min: int = 5) -> float:
     """Lag of the correlation maximum, refined between grid steps by a parabola through the
     best point and its two neighbours (sub-step estimate; precision about +-2.5 min)."""
     k = curve.idxmax()
@@ -112,7 +117,7 @@ def load_irradiance_sensors(config, channels):
     return pd.DataFrame({c: valid(data, c) for c in channels})
 
 
-def daily_ratio(num, den, mask, min_steps=40):
+def daily_ratio(num: pd.Series, den: pd.Series, mask: pd.Series, min_steps: int = 40) -> pd.Series:
     """Median ratio num/den per local day over masked steps; NaN for days with < min_steps.
 
     Ratios outside 0.7-1.3 are dropped (one sensor shaded or iced, not calibration).
@@ -125,7 +130,7 @@ def daily_ratio(num, den, mask, min_steps=40):
     return out
 
 
-def yoy_drift(daily):
+def yoy_drift(daily: pd.Series) -> pd.DataFrame:
     """Year-over-year drift in %/year: monthly medians, then month m vs the same month a year
     earlier. Seasonal effects (spectrum, angle of incidence) cancel inside each pair.
     Returns (median, min, max, number of pairs)."""

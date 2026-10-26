@@ -9,9 +9,13 @@ the Georgia Power avoided energy cost from the 2025 projections filed with the G
 
 import xml.etree.ElementTree as ET
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
+
+from pv_loss_auditor.validation import require_positive
 
 NS = {"m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 
@@ -49,11 +53,13 @@ def load_avoided_energy_cost(config):
     return pd.DataFrame(rows).T.rename_axis("year")
 
 
-def price_usd_per_mwh(config):
+def price_usd_per_mwh(config: Mapping[str, Any]) -> tuple[float, float, float]:
     """(base, low, high) flat price in USD/MWh for the audit: one projection year and one
     technology, with a symmetric sensitivity band."""
     p = config["price"]
     table = load_avoided_energy_cost(config)
-    base = float(table.loc[p["year"], p["technology"]])
+    base = require_positive(float(table.loc[p["year"], p["technology"]]), "avoided energy cost (USD/MWh)")
     band = p["sensitivity_fraction"]
+    if not 0 <= band < 1:
+        raise ValueError(f"price.sensitivity_fraction must be in [0, 1), got {band!r}")
     return base, base * (1 - band), base * (1 + band)

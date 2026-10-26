@@ -10,11 +10,15 @@ Hourly values are means over the PRECEDING hour (Open-Meteo convention), index i
 are labelled at the end of the hour; align with the 5-min plant data accordingly.
 """
 
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import requests
+
+from pv_loss_auditor.validation import require_choice
 
 URL = "https://archive-api.open-meteo.com/v1/archive"
 HOURLY = [
@@ -28,8 +32,9 @@ HOURLY = [
 MODELS = {"era5": "era5", "ifs": "ecmwf_ifs"}
 
 
-def fetch(source, config, out_dir="data/raw/openmeteo"):
+def fetch(source: str, config: Mapping[str, Any], out_dir: str = "data/raw/openmeteo") -> pd.DataFrame:
     """Hourly DataFrame (UTC index) for the analysis period; read from cache if present."""
+    require_choice(source, list(MODELS), "source")
     path = Path(out_dir) / f"9069_{source}.parquet"
     if path.exists():
         return pd.read_parquet(path)
@@ -53,7 +58,7 @@ def fetch(source, config, out_dir="data/raw/openmeteo"):
     return data
 
 
-def poa_from_weather(weather, config, albedo=0.2):
+def poa_from_weather(weather: pd.DataFrame, config: Mapping[str, Any], albedo: float = 0.2) -> pd.Series:
     """Plane-of-array irradiance (W/m2) of the fixed array from hourly GHI / DNI / DHI.
 
     Open-Meteo labels an hourly mean at the END of the hour, so the sun position is taken at the
@@ -85,7 +90,9 @@ def poa_from_weather(weather, config, albedo=0.2):
     return pd.Series(total["poa_global"], index=weather.index, name="poa_wm2").fillna(0)
 
 
-def aoi_loss(weather, config, b0=0.05, albedo=0.2):
+def aoi_loss(
+    weather: pd.DataFrame, config: Mapping[str, Any], b0: float = 0.05, albedo: float = 0.2
+) -> pd.Series:
     """Hourly angle-of-incidence (reflection) loss of the fixed array, fraction of POA (0..1).
 
     ASHRAE IAM = 1 - b0 (1/cos(aoi) - 1) for the beam; sky-diffuse and ground-reflected light use

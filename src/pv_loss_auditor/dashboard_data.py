@@ -4,6 +4,8 @@ No Streamlit here, so every number the app shows can be tested. Input is the exp
 `waterfall_monthly` (kWh per local month, see src/pv_loss_auditor/export_dashboard.py).
 """
 
+from collections.abc import Mapping
+
 import pandas as pd
 
 from pv_loss_auditor.loss_groups import CAUSES, STEPS, by_cause
@@ -14,42 +16,46 @@ CAUSE_NAMES = dict(zip(CAUSES, ["Design", "Downtime", "Running shortfall", "Afte
 AUDIT_CAUSES = ["Downtime", "Running shortfall"]
 
 
-def with_year(monthly):
+def with_year(monthly: pd.DataFrame) -> pd.DataFrame:
     """Add the calendar year (from the 'YYYY-MM' index) and keep months as they are."""
     out = monthly.copy()
     out["year"] = out.index.str[:4]
     return out
 
 
-def yearly(monthly):
+def yearly(monthly: pd.DataFrame) -> pd.DataFrame:
     """Sum of the monthly waterfall per calendar year (kWh). 2020 starts in May, 2023 ends in
     November: the years are NOT full years, compare them as shares of nominal energy."""
     return with_year(monthly).groupby("year").sum()
 
 
-def causes_table(monthly, per="year"):
+def causes_table(monthly: pd.DataFrame, per: str = "year") -> pd.DataFrame:
     """Loss causes in kWh with the short names. per = "year" (rows = years) or "total" (one row).
 
     Also carries nominal_kwh, expected_kwh and metered_kwh for shares and checks.
     """
+    if per not in ("year", "total"):
+        raise ValueError(f"per must be 'year' or 'total', got {per!r}")
     base = yearly(monthly) if per == "year" else monthly.sum().to_frame("total").T
     causes = by_cause(base).rename(columns=CAUSE_NAMES)
     return causes.join(base[["nominal_kwh", "expected_kwh", "metered_kwh"]])
 
 
-def to_usd(kwh, usd_per_mwh):
+def to_usd(kwh: float | pd.Series | pd.DataFrame, usd_per_mwh: float) -> float | pd.Series | pd.DataFrame:
     """kWh -> USD at a flat price (USD/MWh)."""
+    if usd_per_mwh < 0:
+        raise ValueError(f"price must not be negative, got {usd_per_mwh!r} USD/MWh")
     return kwh * usd_per_mwh / 1000
 
 
-def audit_total(monthly, usd_per_mwh):
+def audit_total(monthly: pd.DataFrame, usd_per_mwh: float) -> dict[str, float]:
     """Downtime + running shortfall over the whole period: GWh and USD at the given price."""
     total = causes_table(monthly, per="total").iloc[0]
     kwh = float(total[AUDIT_CAUSES].sum())
     return {"gwh": kwh / 1e6, "usd": to_usd(kwh, usd_per_mwh)}
 
 
-def price_band(prices):
+def price_band(prices: Mapping[str, float]) -> tuple[float, float, float]:
     """(low, base, high) USD/MWh from the exported meta dict."""
     return prices["low"], prices["base"], prices["high"]
 
@@ -144,13 +150,13 @@ def waterfall_bars(steps, values):
     return bars
 
 
-def monthly_cause_share(monthly):
+def monthly_cause_share(monthly: pd.DataFrame) -> pd.DataFrame:
     """Loss causes per month as % of that month's nominal energy (the groups of losses.CAUSES)."""
     c = by_cause(monthly).rename(columns=CAUSE_NAMES)
     return c.div(monthly["nominal_kwh"], axis=0) * 100
 
 
-def inverter_number(column):
+def inverter_number(column: str) -> int:
     """'p_ac_inv17_kw' -> '17'."""
     return column.split("inv")[1][:2]
 
@@ -193,7 +199,7 @@ def failure_groups(pairs, down_days, min_jaccard=0.95):
     return pd.DataFrame(rows).sort_values("group").reset_index(drop=True)
 
 
-def meter_verdict(ratio_median, agree=0.97, disagree=0.95):
+def meter_verdict(ratio_median: float, agree: float = 0.97, disagree: float = 0.95) -> str:
     """What the plant meter says about an outage episode, from the median of the daily
     sum(inverters) / (meter x 1.022): >= agree the stops are real (the meter sees them too),
     < disagree part of the zeros are lost data channels, in between mixed. Thresholds are mine:
@@ -206,7 +212,7 @@ def meter_verdict(ratio_median, agree=0.97, disagree=0.95):
     return "mixed"
 
 
-def rolling_median(series, window=61, min_periods=20):
+def rolling_median(series: pd.Series, window: int = 61, min_periods: int = 20) -> pd.Series:
     """Centred rolling median on a regular daily grid (NaN days stay in, so `window` rows = days)."""
     return series.asfreq("D").rolling(window, center=True, min_periods=min_periods).median()
 

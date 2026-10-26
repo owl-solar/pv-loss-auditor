@@ -10,20 +10,34 @@ are running (a few survivors make a noisy ratio) and the daily
 plane-of-array insolation is high enough for a stable ratio (degradation.min_daily_poa_kwh_m2).
 """
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
 from pv_loss_auditor.kpi import _period, inverter_states, kpi_table, step_hours, weighted_t_ref
 from pv_loss_auditor.model import expected_power, inverter_dc_kw, weighted_gamma
+from pv_loss_auditor.validation import check_poa, require_aligned, require_nonempty, require_positive
 
 
-def daily_normalized_energy(inputs, ac, t_cell, config, gamma=None):
+def daily_normalized_energy(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    gamma: float | None = None,
+) -> pd.DataFrame:
     """Daily measured / expected energy of the running inverters (dimensionless, ~0.9).
 
     Returns a DataFrame indexed by local date with energy_norm, poa_kwh_m2 and coverage
     (usable inverter-steps / daylight inverter-steps; stopped inverters are usable,
     they are downtime, not missing data) and running_share (usable steps not down).
     """
+    require_nonempty(inputs, "inputs")
+    require_aligned(inputs, ac, ("inputs", "ac"))
+    require_aligned(inputs, t_cell, ("inputs", "t_cell"))
+    check_poa(inputs["poa_wm2"], config)
     dt = step_hours(inputs.index)
     poa = inputs["poa_wm2"]
     expected = expected_power(poa, t_cell, config, gamma)["p_ac_kw"]  # same for every inverter
@@ -53,7 +67,13 @@ def daily_normalized_energy(inputs, ac, t_cell, config, gamma=None):
     return out
 
 
-def daily_series(inputs, ac, t_cell, config, gamma=None):
+def daily_series(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    gamma: float | None = None,
+) -> pd.DataFrame:
     """Both RdTools candidates side by side, after the coverage and insolation filters.
 
     Columns: energy_norm, pr_wc (excl. downtime), poa_kwh_m2, coverage. Index = local date
@@ -77,7 +97,9 @@ def daily_series(inputs, ac, t_cell, config, gamma=None):
     return out.asfreq("D")
 
 
-def yoy_rate(series, uncertainty_method="simple", seed=1):
+def yoy_rate(
+    series: pd.Series, uncertainty_method: str = "simple", seed: int = 1
+) -> tuple[float, float, float]:
     """RdTools year-on-year degradation in %/year with its confidence interval.
 
     The YoY method compares each day with the same day one year later (so season cancels), then
@@ -87,6 +109,8 @@ def yoy_rate(series, uncertainty_method="simple", seed=1):
     """
     from rdtools.degradation import degradation_year_on_year
 
+    if series.dropna().empty:
+        raise ValueError("series has no valid days: cannot estimate a degradation rate")
     np.random.seed(seed)
     rd, ci, _ = degradation_year_on_year(
         series.dropna(), recenter=True, uncertainty_method=uncertainty_method
@@ -94,7 +118,15 @@ def yoy_rate(series, uncertainty_method="simple", seed=1):
     return rd, ci[0], ci[1]
 
 
-def filter_sensitivity(inputs, ac, t_cell, config, poa_grid, running_grid, end="2022-12-31"):
+def filter_sensitivity(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    poa_grid: Sequence[float],
+    running_grid: Sequence[float],
+    end: str = "2022-12-31",
+) -> pd.DataFrame:
     """YoY rate of normalized energy for a grid of day-filter thresholds, before and after `end`.
 
     Shows whether the degradation number depends on the (assumed) filters.
@@ -120,14 +152,20 @@ def filter_sensitivity(inputs, ac, t_cell, config, poa_grid, running_grid, end="
     return pd.DataFrame(rows)
 
 
-def daily_precipitation(weather):
+def daily_precipitation(weather: pd.DataFrame) -> pd.Series:
     """Daily rain (mm) per local day from hourly Open-Meteo data, on the same index as daily_series."""
     local = weather["precipitation"].copy()
     local.index = local.index.tz_convert("America/New_York").tz_localize(None)
     return local.resample("D").sum()
 
 
-def soiling_run(daily, precip=None, precip_threshold=2.0, reps=200, seed=1):
+def soiling_run(
+    daily: pd.DataFrame,
+    precip: pd.Series | None = None,
+    precip_threshold: float = 2.0,
+    reps: int = 200,
+    seed: int = 1,
+) -> tuple[float, float, float, int, int]:
     """RdTools SRR soiling ratio of normalized energy; returns (ratio, ci_low, ci_high, n_valid, n_all).
 
     Without precip, cleaning events are inferred from upward jumps of the series ('shift');
@@ -135,9 +173,10 @@ def soiling_run(daily, precip=None, precip_threshold=2.0, reps=200, seed=1):
     ('precip_and_shift'). The ratio is the median soiling ratio over the period, so
     1 - ratio is the average energy lost to soiling. Random seed fixed: SRR bootstraps.
     """
-    import numpy as np
     from rdtools.soiling import soiling_srr
 
+    require_nonempty(daily, "daily series")
+    require_positive(reps, "reps")
     np.random.seed(seed)
     kwargs = {}
     if precip is not None:
@@ -151,7 +190,13 @@ def soiling_run(daily, precip=None, precip_threshold=2.0, reps=200, seed=1):
     return ratio, ci[0], ci[1], int(table["valid"].sum()), len(table)
 
 
-def pr_by_poa_source(inputs, ac, config, external, min_valid=10):
+def pr_by_poa_source(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    config: Mapping[str, Any],
+    external: Mapping[str, pd.Series],
+    min_valid: int = 10,
+) -> pd.DataFrame:
     """Annual raw PR (variant A, no temperature factor) of running inverters per POA source.
 
     PR = sum(E_AC) / sum(P0 x H_poa / 1000), same hours and inverters for every source. Hours are
@@ -186,7 +231,7 @@ def pr_by_poa_source(inputs, ac, config, external, min_valid=10):
     return pd.DataFrame(rows)
 
 
-def yoy_table(daily, end="2022-12-31"):
+def yoy_table(daily: pd.DataFrame, end: str = "2022-12-31") -> pd.DataFrame:
     """YoY degradation of both RdTools candidates, for the full period and up to `end`.
 
     The step in 2023 is not ageing, so both periods are reported side by side.
@@ -208,7 +253,9 @@ def yoy_table(daily, end="2022-12-31"):
     return pd.DataFrame(rows)
 
 
-def soiling_table(daily, rain, thresholds=(1, 2, 5, 10), end="2022-12-31"):
+def soiling_table(
+    daily: pd.DataFrame, rain: pd.Series, thresholds: Sequence[float] = (1, 2, 5, 10), end: str = "2022-12-31"
+) -> pd.DataFrame:
     """SRR soiling ratio for different cleaning information, loss_pct = (1 - ratio) x 100.
 
     Rows: upward jumps only, rain >= each threshold (mm) + jumps, and the 2 mm case up to `end`.
@@ -236,7 +283,7 @@ def soiling_table(daily, rain, thresholds=(1, 2, 5, 10), end="2022-12-31"):
     return table
 
 
-def hourly_plant_poa(poa, min_valid=10):
+def hourly_plant_poa(poa: pd.Series, min_valid: int = 10) -> pd.Series:
     """Plant POA as hourly means of the PRECEDING hour (labels at hour end, as Open-Meteo).
 
     An hour counts only if at least `min_valid` of its 12 five-minute values exist.
@@ -245,7 +292,9 @@ def hourly_plant_poa(poa, min_valid=10):
     return h.mean().where(h.count() >= min_valid)
 
 
-def external_poa_comparison(plant_hourly, external, min_poa=200, window=12):
+def external_poa_comparison(
+    plant_hourly: pd.Series, external: Mapping[str, pd.Series], min_poa: float = 200, window: int = 12
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """External hourly POA against the plant sensors.
 
     Returns (stats, ratio):
@@ -277,12 +326,14 @@ def external_poa_comparison(plant_hourly, external, min_poa=200, window=12):
     return pd.DataFrame(stats), ratio
 
 
-def weighted_loss_pct(poa, loss_fraction):
+def weighted_loss_pct(poa: pd.Series, loss_fraction: pd.Series) -> float:
     """Period loss in % of POA: sum(poa x loss) / sum(poa). Used for the AOI loss."""
+    if not poa.sum() > 0:
+        raise ValueError("no irradiance: cannot weight a loss by POA")
     return float((poa * loss_fraction).sum() / poa.sum() * 100)
 
 
-def shortfall_split(daily, soiling_pct, aoi_pct):
+def shortfall_split(daily: pd.DataFrame, soiling_pct: float, aoi_pct: float) -> pd.DataFrame:
     """Yearly shortfall (median of 1 - energy_norm, % of expected) and what explains it.
 
     Soiling is an estimate, AOI an upper bound (the reference cells lose to reflection too), so

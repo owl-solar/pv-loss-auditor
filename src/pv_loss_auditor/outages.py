@@ -8,23 +8,31 @@ sum(inverters) / (meter x inv_to_meter) stays at ~1; false zeros (lost data chan
 the sum.
 """
 
+from collections.abc import Mapping, Sequence
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
 from pv_loss_auditor.kpi import inverter_states, step_hours
+from pv_loss_auditor.validation import require_aligned, require_nonempty, require_positive
 
 LOCAL_TZ = "America/New_York"
 
 
-def _local_day(index):
+def _local_day(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
     return index.tz_convert(LOCAL_TZ).normalize().tz_localize(None)
 
 
-def down_days(ac, poa, config, min_known_steps=24):
+def down_days(
+    ac: pd.DataFrame, poa: pd.Series, config: Mapping[str, Any], min_known_steps: int = 24
+) -> pd.DataFrame:
     """Frame (local dates x inverters): 1.0 = down on more than half of the known steps, 0.0 = up.
 
     Days with fewer than min_known_steps known daylight steps are NaN (neither up nor down).
     """
+    require_nonempty(ac, "ac")
+    require_aligned(ac, poa, ("ac", "poa"))
     known, down = inverter_states(ac, poa, config)
     day = _local_day(ac.index)
     n_known, n_down = known.groupby(day).sum(), down.groupby(day).sum()
@@ -32,7 +40,7 @@ def down_days(ac, poa, config, min_known_steps=24):
     return (share > 0.5).astype(float).where(share.notna())
 
 
-def pair_overlap(is_down, min_union=10):
+def pair_overlap(is_down: pd.DataFrame, min_union: int = 10) -> pd.DataFrame:
     """Jaccard index of the down-days of every inverter pair, best pairs first.
 
     Jaccard = days both are down / days at least one is down (1.0 = always together).
@@ -52,8 +60,11 @@ def pair_overlap(is_down, min_union=10):
     return pd.DataFrame(rows).sort_values("jaccard", ascending=False).reset_index(drop=True)
 
 
-def inverter_meter_ratio(inputs, ac, config):
+def inverter_meter_ratio(inputs: pd.DataFrame, ac: pd.DataFrame, config: Mapping[str, Any]) -> pd.Series:
     """Daily sum(inverter AC) / (meter x inv_to_meter) over daylight steps with POA and meter."""
+    require_nonempty(inputs, "inputs")
+    require_aligned(inputs, ac, ("inputs", "ac"))
+    require_positive(config["losses"]["inv_to_meter"], "losses.inv_to_meter")
     dt = step_hours(inputs.index)
     lit = inputs["daylight"] & inputs["poa_wm2"].notna() & inputs["p_ac_meter_kw"].notna()
     day = _local_day(inputs.index)
@@ -63,7 +74,9 @@ def inverter_meter_ratio(inputs, ac, config):
     return e_inv / (e_meter * config["losses"]["inv_to_meter"])
 
 
-def episode_table(is_down, ratio, episodes):
+def episode_table(
+    is_down: pd.DataFrame, ratio: pd.Series, episodes: Sequence[Mapping[str, str]]
+) -> pd.DataFrame:
     """One row per episode: which inverters are down, and what the meter says.
 
     stopped: inverters down on more than 80 % of the episode's days; partly: 20-80 %.
