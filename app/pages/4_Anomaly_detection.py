@@ -250,8 +250,9 @@ st.info(
     f"{int(inv30.loc[inside, 'flag forest, 4 features'].sum())} inside it; the rule flags {len(outside_rule)} days outside. "
     "Those days are labelled *clean*, so they count as false alarms. The cause is unknown. The own-norm window is "
     "unlikely to be the reason (121 days against a 45-day event: at most 37 % of its days lie in the event, so its "
-    "median stays at the healthy level), and the event window in the config, "
-    f"which starts on 2020-09-22, is probably too narrow. The effect on the reported numbers is small: "
+    "median stays at the healthy level). I kept the event window of the config, which starts on 2020-09-22: "
+    "it would be circular to widen it from the detector's own flags. With the window widened the rates move by a "
+    "few percentage points (see the README). The effect of these days on the reported numbers is small: "
     f"{len(outside_forest)} days are {len(outside_forest) / clean_days_tuning:.1%} of the {clean_days_tuning:,} clean "
     "inverter-days of the tuning years, against a budget of 1 %.",
     icon="🔍",

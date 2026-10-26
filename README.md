@@ -91,8 +91,12 @@ false alarms and was rejected.
   above summer). What remains is row shading at low sun and low-light behaviour that linear PVWatts does not have.
 - **A month of over-performance of inverter 30** (+0.09 ... +0.16 against its own norm, 2020-08-21 ... 09-21) right
   before the real event of 2020-09-22. The forest flags 20 days there (and only 1 inside the event); they count as
-  false alarms because the event window in the config starts later, probably too narrow. The effect on the reported rates is about 0.1 % of
-  clean inverter-days, against a budget of 1 %.
+  false alarms because the event window in the config starts later. I kept the window as it is: it was found from the
+  detector flags, so widening it afterwards would be circular. As a sensitivity check I re-ran the whole experiment with the
+  window starting on 2020-08-21: the synthetic events are then drawn again (47 instead of 62 in the test years), the rule
+  goes from 50 % at precision 0.91 to 53 % at 0.90, the forests from 16-18 % at 0.57-0.59 to 15 % at 0.65-0.74. So the
+  rates above carry an uncertainty of a few percentage points from the choice of events alone. The 20 days are 0.1 % of
+  the clean inverter-days, against a budget of 1 %.
 
 ## How to read the USD figures
 

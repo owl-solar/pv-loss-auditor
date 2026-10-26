@@ -229,8 +229,7 @@ Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stal
   over 2020-07 … 2021-01. Those days are labelled clean, so they count as false alarms: 20 days =
   0.1 % of the 16 896 clean inverter-days of the tuning years, against a budget of 1 %. Cause
   unknown; the own-norm window is an unlikely reason (≤ 37 % of its 121 days lie in the event).
-  The event window in `anomalies.synthetic.exclude_inverter` is probably too narrow; widening it
-  is a methodological choice, not made yet (propose options first).
+  Decision: window kept as is (see "Where we stopped", sensitivity in the README).
 - Limits to state with any number: faults are synthetic, abrupt and AC-side; 62 test events in
   14 cells (1–7 each); precision depends on the share of injected days (17 % of all
   inverter-days, 12 % in the test years); own norm absorbs slow drift
@@ -282,10 +281,14 @@ Waiting on the user (only she can do these, no browser / Streamlit account here)
 3. **The public URL** (`https://….streamlit.app`).
 Then (me): put the URL in place of the HTML comment at the top of the README, add the screenshots to
 the "Dashboard" section, commit (summary first, push only after "yes").
-Decided NOT to do now: **tag v1.0** (only when she asks; she said not now) and the **inv30
-event-window question** (widening `anomalies.synthetic.exclude_inverter` for 2020-08-21 … 09-21 is a
-methodological choice: propose options first). Station 1200 (scalability check) is not part of this
-version either.
+Decided NOT to do now: **tag v1.0** (only when she asks; she said not now). Station 1200 (scalability check) is not
+part of this version either.
+**inv30 event window (decided 2026-10-26, her choice from options): keep it as is** (09-22 … 11-04). Why: the extra
+window 08-21 … 09-21 was found from detector flags (circular), the 20 days are 0.1 % of clean days against the 1 %
+budget, and widening it re-draws all synthetic events (47 instead of 62 in the test years) and changes the golden
+values for reasons unrelated to inv30. Sensitivity is in the README (rule 50 % / 0.91 → 53 % / 0.90; forests
+16-18 % / 0.57-0.59 → 15 % / 0.65-0.74): the rates are uncertain by a few pp from the choice of events. Do not reopen
+unless she asks.
 
 ## Production refactor and CI (chat 8, 2026-10-26)
 Task: bring the repo to production level (package, validation, tests, ruff, CI) **without changing any
