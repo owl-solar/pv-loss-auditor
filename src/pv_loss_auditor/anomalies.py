@@ -11,22 +11,35 @@ what a failed string or combiner does. The price: a loss that hits every inverte
 invisible here (it is covered by the waterfall and Phase 4).
 """
 
+import logging
+from collections.abc import Mapping
+from typing import Any
+
 import numpy as np
 import pandas as pd
 
 from pv_loss_auditor.kpi import inverter_states
 from pv_loss_auditor.model import expected_power
+from pv_loss_auditor.validation import check_poa, require_aligned, require_nonempty, require_positive
+
+log = logging.getLogger(__name__)
+
+Config = Mapping[str, Any]
 
 
-def relative_residual(inputs, ac, t_cell, config):
+def relative_residual(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Config) -> pd.DataFrame:
     """Peer-normalised residual rel per inverter-step (DataFrame like `ac`, NaN = not usable).
 
     A step counts if it is daylight, POA > min_poa_wm2, T_cell known and the model is below
     max_expected_fraction x rating (no clipping). Stopped inverters (down) are excluded: they are
     downtime, already in the waterfall. The peer median needs at least min_peers inverters.
     """
+    require_nonempty(inputs, "inputs")
+    require_aligned(inputs, ac, ("inputs", "ac"))
+    require_aligned(inputs, t_cell, ("inputs", "t_cell"))
+    check_poa(inputs["poa_wm2"], config)
     a = config["anomalies"]
-    rating = config["inverters"]["ac_kw"][0]["ac_kw"]
+    rating = require_positive(config["inverters"]["ac_kw"][0]["ac_kw"], "inverter AC rating")
     poa = inputs["poa_wm2"]
     expected = expected_power(poa, t_cell, config)["p_ac_kw"]
     step_ok = (inputs["daylight"] & (poa > a["min_poa_wm2"]) & t_cell.notna()
@@ -39,7 +52,7 @@ def relative_residual(inputs, ac, t_cell, config):
     return r.div(peer, axis=0)
 
 
-def daily_features(rel, config):
+def daily_features(rel: pd.DataFrame, config: Config) -> pd.DataFrame:
     """One row per (local date, inverter) with summary features of rel.
 
     rel_median   typical level of the day (a lost string shifts it);
@@ -64,7 +77,8 @@ def daily_features(rel, config):
     return out[out["n_steps"] >= config["anomalies"]["min_day_steps"]]
 
 
-def deviation_from_own_norm(daily_rel_median, window_days=61, min_days=20):
+def deviation_from_own_norm(daily_rel_median: pd.DataFrame, window_days: int = 61,
+                            min_days: int = 20) -> pd.DataFrame:
     """Daily rel_median minus the inverter's own rolling median (centred, +-30 days).
 
     Healthy inverters sit at fixed offsets from their peers (0.96 ... 1.05, stable over years:
@@ -85,7 +99,7 @@ def deviation_from_own_norm(daily_rel_median, window_days=61, min_days=20):
 FEATURES = ["rel_median", "rel_p10", "frac_below95", "rel_spread"]
 
 
-def own_norm_features(feat, config):
+def own_norm_features(feat: pd.DataFrame, config: Config) -> pd.DataFrame:
     """Daily features as deviations from each inverter's own rolling norm.
 
     The norm window comes from the config (anomalies.norm_window_days).
@@ -102,7 +116,7 @@ def own_norm_features(feat, config):
     return pd.DataFrame(out).dropna()
 
 
-def forest_scores(x, config):
+def forest_scores(x: pd.DataFrame, config: Config) -> pd.Series:
     """Anomaly score per row of x (higher = more unusual); unsupervised, no labels used.
 
     Isolation Forest isolates a point by random splits; unusual points need fewer splits. Both
@@ -110,13 +124,15 @@ def forest_scores(x, config):
     scikit-learn, so that larger = more anomalous.
     """
     from sklearn.ensemble import IsolationForest
+    require_nonempty(x, "feature table")
     f = config["anomalies"]["forest"]
+    log.info("Isolation Forest: %d rows x %d features, %d trees", len(x), x.shape[1], f["n_estimators"])
     model = IsolationForest(n_estimators=f["n_estimators"], random_state=f["random_state"])
     model.fit(x)
     return pd.Series(-model.score_samples(x), index=x.index, name="score")
 
 
-def day_labels(index, events, config):
+def day_labels(index: pd.MultiIndex, events: pd.DataFrame, config: Config) -> pd.Series:
     """Label of each (date, inverter) row: 'fault' (inside a synthetic window), 'excluded'
     (inside a real event excluded from the injection: not clean, not a label) or 'clean'."""
     from pv_loss_auditor.synthetic_faults import _blocked_days
@@ -171,7 +187,7 @@ def evaluate_flags(flag, labels, events, config, min_flag_days=None):
     return summary, per_event
 
 
-def rule_score(x, sigma=None):
+def rule_score(x: pd.DataFrame, sigma: float | None = None) -> pd.Series:
     """Baseline without ML: how many robust sigmas dev_rel_median lies BELOW zero (higher = worse).
 
     sigma = 1.4826 x MAD of dev_rel_median. Pass the sigma of the REAL data (no injected faults):
@@ -183,6 +199,7 @@ def rule_score(x, sigma=None):
     d = x["dev_rel_median"]
     if sigma is None:
         sigma = 1.4826 * (d - d.median()).abs().median()
+    require_positive(sigma, "robust sigma of the residual (flat residual series?)")
     return (-d / sigma).rename("score")
 
 
@@ -244,7 +261,7 @@ def tune_and_report(score, thresholds, labels, tune, test, events_tune, events_t
 DETECTORS = ["forest, 4 features", "forest, 2 features", "rule (baseline)"]
 
 
-def robust_sigma(d):
+def robust_sigma(d: pd.Series) -> float:
     """1.4826 x MAD: the standard deviation of a normal sample, insensitive to rare large values.
 
     Compute it on the REAL data (no injected faults), see rule_score.
