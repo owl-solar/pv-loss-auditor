@@ -7,7 +7,7 @@ read from these files, so a public deployment needs no download.
 Prices are NOT applied here: tables are in kWh and the app multiplies by the price chosen in its
 sidebar, so the price band can be changed without a new export. Run from the project root:
 
-    python -m src.export_dashboard --config configs/system_9069.yaml
+    python -m pv_loss_auditor.export_dashboard --config configs/system_9069.yaml
 """
 
 import argparse
@@ -16,12 +16,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from src import anomalies as an
-from src import degradation as dg
-from src import kpi, losses, openmeteo as om, outages, prices
-from src.config import load_config
-from src.model import cell_temperature, load_inputs, weighted_gamma
-from src.synthetic_faults import inject_faults, plan_faults
+from pv_loss_auditor import anomalies as an
+from pv_loss_auditor import degradation as dg
+from pv_loss_auditor import kpi, losses, openmeteo as om, outages, prices
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.model import cell_temperature, load_inputs, weighted_gamma
+from pv_loss_auditor.synthetic_faults import inject_faults, plan_faults
 
 OUT_DIR = Path("app/data")
 
@@ -81,7 +81,7 @@ def outage_tables(inputs, ac, config):
 def degradation_tables(inputs, ac, t_cell, config):
     """Phase 4: daily series for RdTools, YoY rates, soiling, external weather, shortfall split.
 
-    Same calls as notebooks/04_degradation_soiling.ipynb (computations live in src/degradation.py);
+    Same calls as notebooks/04_degradation_soiling.ipynb (computations live in src/pv_loss_auditor/degradation.py);
     the Open-Meteo files must be cached in data/raw/openmeteo/ (no download if they are).
     """
     daily = dg.daily_series(inputs, ac, t_cell, config)

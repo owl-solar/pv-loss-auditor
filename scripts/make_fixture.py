@@ -1,6 +1,6 @@
 """Cut a small slice of the REAL clean dataset of 9069 for tests and CI (no network needed).
 
-The slice keeps only the columns that `src.model.load_inputs` reads, for 14 UTC days. The window
+The slice keeps only the columns that `pv_loss_auditor.model.load_inputs` reads, for 14 UTC days. The window
 2020-12-08 ... 2020-12-21 contains the real plant-wide stop of 2020-12-12 ... 12-18 (26 inverters
 down), so availability, downtime and the waterfall are exercised on real outage data.
 Values are copied as measured: nothing is edited or filled in. Run from the project root:
@@ -14,8 +14,8 @@ from pathlib import Path
 import pandas as pd
 import pyarrow.parquet as pq
 
-from src.config import load_config
-from src.model import inverter_columns
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.model import inverter_columns
 
 START, END = "2020-12-08", "2020-12-22"      # END exclusive: 14 days
 OUT = Path("tests/fixtures/9069_clean")

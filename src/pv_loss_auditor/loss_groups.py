@@ -1,6 +1,6 @@
 """Names of the waterfall steps and their grouping into causes (no heavy imports).
 
-Kept apart from src/losses.py so that the dashboard can use them without importing the model, the
+Kept apart from src/pv_loss_auditor/losses.py so that the dashboard can use them without importing the model, the
 cleaning code and the data loaders. src.losses re-exports these names.
 """
 

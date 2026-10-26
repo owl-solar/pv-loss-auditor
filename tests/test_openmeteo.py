@@ -1,11 +1,11 @@
-"""Tests of src/openmeteo.py without internet (requests.get is replaced) on SYNTHETIC weather."""
+"""Tests of src/pv_loss_auditor/openmeteo.py without internet (requests.get is replaced) on SYNTHETIC weather."""
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from src import openmeteo as om
-from src.config import load_config
+from pv_loss_auditor import openmeteo as om
+from pv_loss_auditor.config import load_config
 
 CONFIG = load_config("configs/system_9069.yaml")
 

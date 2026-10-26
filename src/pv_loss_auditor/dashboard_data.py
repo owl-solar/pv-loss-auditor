@@ -1,14 +1,14 @@
 """Aggregations behind the dashboard (app/): monthly waterfall tables -> years, causes, USD.
 
 No Streamlit here, so every number the app shows can be tested. Input is the exported table
-`waterfall_monthly` (kWh per local month, see src/export_dashboard.py).
+`waterfall_monthly` (kWh per local month, see src/pv_loss_auditor/export_dashboard.py).
 """
 
 import pandas as pd
 
-from src.loss_groups import CAUSES, STEPS, by_cause
+from pv_loss_auditor.loss_groups import CAUSES, STEPS, by_cause
 
-# Short names of the presentation groups in src/losses.CAUSES (same order).
+# Short names of the presentation groups in src/pv_loss_auditor/losses.CAUSES (same order).
 CAUSE_NAMES = dict(zip(CAUSES, ["Design", "Downtime", "Running shortfall", "After inverters"]))
 # Causes the audit points at: what an operator can act on. "Design" is the plant as built.
 AUDIT_CAUSES = ["Downtime", "Running shortfall"]
@@ -59,7 +59,7 @@ def waterfall_steps(monthly, year=None):
 
     year = None gives the whole period. The returned frame has columns label, kwh, kind
     ("total" for the two ends, "loss" for steps; a negative loss is a gain, e.g. the channel
-    credit) and is ordered as in src/losses.STEPS.
+    credit) and is ordered as in src/pv_loss_auditor/losses.STEPS.
     """
     m = monthly if year is None else monthly[monthly.index.str[:4] == str(year)]
     s = m.sum()

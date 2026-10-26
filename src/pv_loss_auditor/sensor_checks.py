@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-from src.geometry import LOCAL_TZ, local_day
-from src.model import valid
-from src.clean import load_clean
+from pv_loss_auditor.geometry import LOCAL_TZ, local_day
+from pv_loss_auditor.model import valid
+from pv_loss_auditor.data import load_clean
 
 
 def sun_and_aoi(index, config):

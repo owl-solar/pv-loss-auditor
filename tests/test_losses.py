@@ -4,9 +4,9 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-from src.config import load_config
-from src.losses import STEPS, check_closure, inverter_ac_unclipped, loss_waterfall
-from src.model import expected_power
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.losses import STEPS, check_closure, inverter_ac_unclipped, loss_waterfall
+from pv_loss_auditor.model import expected_power
 
 CONFIG = load_config("configs/system_9069.yaml")
 

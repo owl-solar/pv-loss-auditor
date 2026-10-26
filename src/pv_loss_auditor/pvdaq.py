@@ -22,7 +22,7 @@ from botocore import UNSIGNED
 from botocore.config import Config
 from botocore.exceptions import BotoCoreError, ClientError
 
-from src.config import load_config
+from pv_loss_auditor.config import load_config
 
 BUCKET = "oedi-data-lake"
 PREFIX = "pvdaq/"
@@ -85,7 +85,7 @@ PROBE_BYTES = 8192  # one binary-search read; longest 9069 row is ~1 KB, so it h
 TS_LEN = len("YYYY-MM-DD HH:MM:SS")  # ISO timestamps compare correctly as plain strings
 
 bytes_transferred = 0  # running total in this Python session, for traffic reporting
-_traffic_lock = threading.Lock()  # src/coverage.py reads in parallel threads
+_traffic_lock = threading.Lock()  # src/pv_loss_auditor/coverage.py reads in parallel threads
 
 
 def _get_range(s3, key, start, end):

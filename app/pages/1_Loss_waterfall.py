@@ -9,7 +9,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # `common` lives in app/
 import common  # noqa: E402
-from src import dashboard_data as dd
+from pv_loss_auditor import dashboard_data as dd
 
 st.set_page_config(page_title="Loss waterfall · PV Loss Auditor", page_icon="☀️", layout="wide")
 price = common.price_control()

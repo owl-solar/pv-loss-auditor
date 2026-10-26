@@ -11,7 +11,7 @@ the sum.
 import numpy as np
 import pandas as pd
 
-from src.kpi import inverter_states, step_hours
+from pv_loss_auditor.kpi import inverter_states, step_hours
 
 LOCAL_TZ = "America/New_York"
 

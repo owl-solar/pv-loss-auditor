@@ -21,10 +21,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src import export_dashboard as ex
-from src import prices
-from src.config import load_config
-from src.model import cell_temperature, load_inputs, weighted_gamma
+from pv_loss_auditor import export_dashboard as ex
+from pv_loss_auditor import prices
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.model import cell_temperature, load_inputs, weighted_gamma
 
 GOLDEN = Path("tests/fixtures/golden_values.json")
 FIXTURE_DIR = "tests/fixtures/9069_clean"

@@ -113,7 +113,7 @@ per year); the channel credit assumes an inverter-to-meter factor of 1.022 (1 pp
 - **Open-Meteo** historical weather (ERA5, ECMWF IFS, archive API with explicit `models=`) as a reanalysis alternative
   to on-site sensors. The satellite API has no coverage at this site; a true satellite source would be NSRDB or
   NASA POWER.
-- **Electricity price:** see above (`src/prices.py`).
+- **Electricity price:** see above (`src/pv_loss_auditor/prices.py`).
 
 ### What the QA found
 
@@ -133,27 +133,27 @@ The data were not taken at face value ([`notebooks/01_data_qa.ipynb`](notebooks/
 
 ## Method
 
-- **Expected generation** ([`src/model.py`](src/model.py)): pvlib PVWatts DC and inverter functions called one by one
+- **Expected generation** ([`src/pv_loss_auditor/model.py`](src/pv_loss_auditor/model.py)): pvlib PVWatts DC and inverter functions called one by one
   (not ModelChain), so every step is visible. POA = mean of two reference cells; cell temperature = mean of three
   back-of-module thermocouples + 3 °C × G/1000; γ = −0.416 %/°C (DC-weighted nameplate); 6.34 % design DC losses;
   inverter η 0.98, clipped at 825 kW.
-- **KPIs** ([`src/kpi.py`](src/kpi.py)): Performance Ratio per IEC 61724-1 at inverter-step level (ratio of sums) in
+- **KPIs** ([`src/pv_loss_auditor/kpi.py`](src/pv_loss_auditor/kpi.py)): Performance Ratio per IEC 61724-1 at inverter-step level (ratio of sums) in
   three temperature treatments (raw, 25 °C, the POA-weighted mean cell temperature of the period), specific yield,
   availability (time- and energy-based).
-- **Loss waterfall** ([`src/losses.py`](src/losses.py)): a sequential cascade in physical order, each step the
+- **Loss waterfall** ([`src/pv_loss_auditor/losses.py`](src/pv_loss_auditor/losses.py)): a sequential cascade in physical order, each step the
   difference of two neighbouring cumulative quantities, so the steps add up to nominal − metered by construction; a
   closure check stops the run otherwise. Downtime is separated from data-channel loss by a daily reconciliation of
   the inverter sum against the plant meter.
-- **Degradation and soiling** ([`src/degradation.py`](src/degradation.py)): RdTools year-on-year degradation and SRR
+- **Degradation and soiling** ([`src/pv_loss_auditor/degradation.py`](src/pv_loss_auditor/degradation.py)): RdTools year-on-year degradation and SRR
   soiling on the daily ratio of measured to expected energy of the running inverters.
-- **Anomaly detection** ([`src/anomalies.py`](src/anomalies.py), [`src/synthetic_faults.py`](src/synthetic_faults.py)):
+- **Anomaly detection** ([`src/pv_loss_auditor/anomalies.py`](src/pv_loss_auditor/anomalies.py), [`src/pv_loss_auditor/synthetic_faults.py`](src/pv_loss_auditor/synthetic_faults.py)):
   residual = measured / expected per inverter divided by the median of its running peers; features as deviations
   from the inverter's own 121-day norm; Isolation Forest and a plain rule; synthetic string faults from an explicit,
   documented, seeded script and labelled synthetic everywhere.
 
 ## Dashboard
 
-A Streamlit app reads small tables exported from the same code ([`src/export_dashboard.py`](src/export_dashboard.py),
+A Streamlit app reads small tables exported from the same code ([`src/pv_loss_auditor/export_dashboard.py`](src/pv_loss_auditor/export_dashboard.py),
 `app/data/`, about 350 kB), so it needs neither the raw data nor the model. Pages:
 
 1. **Summary:** headline loss, KPIs, losses by cause and year (GWh, USD or % of nominal energy), price slider.
@@ -180,14 +180,14 @@ pip install -r requirements.txt
 Download the analysis period of PVDAQ system 9069 (public OEDI S3 bucket, no credentials; about 1.2 GB, resumes month
 by month after an interruption), then build the clean dataset:
 ```powershell
-python -m src.pvdaq --config configs/system_9069.yaml --period --dry-run   # size estimate only
-python -m src.pvdaq --config configs/system_9069.yaml --period
-python -m src.clean --config configs/system_9069.yaml                       # -> data/processed/9069/
+python -m pv_loss_auditor.pvdaq --config configs/system_9069.yaml --period --dry-run   # size estimate only
+python -m pv_loss_auditor.pvdaq --config configs/system_9069.yaml --period
+python -m pv_loss_auditor.data --config configs/system_9069.yaml                       # -> data/processed/9069/
 ```
 The price file (Georgia PSC filing #223157, 249 kB) goes to `data/raw/prices/` (see `price:` in the config).
 Then run the notebooks in order (`01_data_qa` ... `05_anomaly_detection`), and export the dashboard tables:
 ```powershell
-python -m src.export_dashboard --config configs/system_9069.yaml            # -> app/data/ (about 1.5 minutes)
+python -m pv_loss_auditor.export_dashboard --config configs/system_9069.yaml            # -> app/data/ (about 1.5 minutes)
 ```
 Tests (synthetic data only, no download needed):
 ```powershell

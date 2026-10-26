@@ -6,9 +6,9 @@ import pytest
 
 import copy
 
-from src.anomalies import daily_features, deviation_from_own_norm, relative_residual
-from src.config import load_config
-from src.model import expected_power
+from pv_loss_auditor.anomalies import daily_features, deviation_from_own_norm, relative_residual
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.model import expected_power
 
 CONFIG = load_config("configs/system_9069.yaml")
 N_INV = 12
@@ -100,7 +100,7 @@ def _labelled_rows():
 
 
 def test_day_labels_and_event_metrics():
-    from src.anomalies import day_labels, evaluate_flags
+    from pv_loss_auditor.anomalies import day_labels, evaluate_flags
     cfg = copy.deepcopy(CONFIG)
     cfg["anomalies"]["synthetic"]["exclude_plant"] = [{"start": "2021-03-09", "end": "2021-03-09"}]
     cfg["anomalies"]["synthetic"]["exclude_inverter"] = []
@@ -123,7 +123,7 @@ def test_day_labels_and_event_metrics():
 
 
 def test_forest_ranks_an_obvious_outlier_first():
-    from src.anomalies import forest_scores
+    from pv_loss_auditor.anomalies import forest_scores
     rng = np.random.default_rng(0)
     x = pd.DataFrame(rng.normal(0, 0.01, size=(500, 4)), columns=["a", "b", "c", "d"])
     x.iloc[123] = [-0.3, -0.2, 0.5, 0.4]               # one point far from the cloud
@@ -132,7 +132,7 @@ def test_forest_ranks_an_obvious_outlier_first():
 
 
 def test_own_norm_features_removes_static_offsets():
-    from src.anomalies import FEATURES, own_norm_features
+    from pv_loss_auditor.anomalies import FEATURES, own_norm_features
     dates = pd.date_range("2021-01-01", periods=300, freq="D")
     index = pd.MultiIndex.from_product([dates, ["A", "B"]], names=["date", "inverter"])
     feat = pd.DataFrame({f: 0.0 for f in FEATURES}, index=index)
@@ -144,7 +144,7 @@ def test_own_norm_features_removes_static_offsets():
 
 
 def test_tune_and_report_chooses_on_tuning_rows_and_reports_on_test_rows():
-    from src.anomalies import tune_and_report
+    from pv_loss_auditor.anomalies import tune_and_report
     dates = pd.date_range("2021-11-01", periods=120, freq="D")
     index = pd.MultiIndex.from_product([dates, ["A"]], names=["date", "inverter"])
     d = index.get_level_values("date")
@@ -164,7 +164,7 @@ def test_tune_and_report_chooses_on_tuning_rows_and_reports_on_test_rows():
 
 
 def test_far_criterion_respects_the_false_alarm_budget():
-    from src.anomalies import tune_and_report
+    from pv_loss_auditor.anomalies import tune_and_report
     dates = pd.date_range("2021-01-01", periods=100, freq="D")
     index = pd.MultiIndex.from_product([dates, ["A"]], names=["date", "inverter"])
     d = index.get_level_values("date")
@@ -183,7 +183,7 @@ def test_far_criterion_respects_the_false_alarm_budget():
 
 
 def test_rule_score_uses_the_given_sigma_and_only_the_low_side():
-    from src.anomalies import rule_score
+    from pv_loss_auditor.anomalies import rule_score
     x = pd.DataFrame({"dev_rel_median": [0.0, -0.02, 0.02, -0.04]})
     s = rule_score(x, sigma=0.01)
     assert np.allclose(s.to_numpy(), [0.0, 2.0, -2.0, 4.0])      # loss = positive score, gain = negative
@@ -197,7 +197,7 @@ def test_rule_score_uses_the_given_sigma_and_only_the_low_side():
 def _panel(seed=0):
     """10 inverters x 730 days (2021-2022) of deviations ~ N(0, 0.007); each of 4 events (2 in
     each year) drops dev_rel_median by 0.15 for 30 days. Returns x, labels, events."""
-    from src.anomalies import FEATURES
+    from pv_loss_auditor.anomalies import FEATURES
     dates = pd.date_range("2021-01-01", periods=730, freq="D")
     inv = [f"p_ac_inv{i:02d}_kw" for i in range(1, 11)]
     index = pd.MultiIndex.from_product([dates, inv], names=["date", "inverter"])
@@ -218,7 +218,7 @@ def _panel(seed=0):
 
 
 def test_robust_sigma_ignores_rare_outliers():
-    from src.anomalies import robust_sigma
+    from pv_loss_auditor.anomalies import robust_sigma
     d = pd.Series(np.random.default_rng(1).normal(0, 0.01, 2000))
     clean = robust_sigma(d)
     d.iloc[:40] = -0.5                                    # 2 % huge outliers
@@ -228,7 +228,7 @@ def test_robust_sigma_ignores_rare_outliers():
 
 
 def test_run_detectors_finds_obvious_faults_and_returns_all_tables():
-    from src.anomalies import (DETECTORS, detection_by_cell, flags_in_windows, robust_sigma,
+    from pv_loss_auditor.anomalies import (DETECTORS, detection_by_cell, flags_in_windows, robust_sigma,
                                run_detectors, summary_table)
     x, labels, events = _panel()
     sigma = robust_sigma(x["dev_rel_median"])
@@ -252,7 +252,7 @@ def test_run_detectors_finds_obvious_faults_and_returns_all_tables():
 
 
 def test_flags_in_windows_counts_only_the_named_inverter_and_dates():
-    from src.anomalies import flags_in_windows
+    from pv_loss_auditor.anomalies import flags_in_windows
     dates = pd.date_range("2021-01-01", periods=10, freq="D")
     index = pd.MultiIndex.from_product([dates, ["A", "B"]], names=["date", "inverter"])
     flag = pd.Series(True, index=index)

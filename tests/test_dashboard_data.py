@@ -3,8 +3,8 @@
 import pandas as pd
 import pytest
 
-from src import dashboard_data as dd
-from src.losses import STEPS
+from pv_loss_auditor import dashboard_data as dd
+from pv_loss_auditor.losses import STEPS
 
 
 def monthly_table():
@@ -158,12 +158,14 @@ def test_detection_rate_pools_durations_and_keeps_the_event_counts():
 def test_dashboard_modules_do_not_import_the_heavy_stack():
     # The deployed app installs only app/requirements.txt (no pvlib, pvanalytics, boto3, scipy ...).
     # If a dashboard module started to import them, the public app would fail on start.
+    import os
     import subprocess
     import sys
     from pathlib import Path
 
-    code = ("import sys, src.dashboard_data, src.config, src.loss_groups; "
+    code = ("import sys, pv_loss_auditor.dashboard_data, pv_loss_auditor.config, pv_loss_auditor.loss_groups; "
             "print([m for m in ('pvlib', 'pvanalytics', 'boto3', 'scipy', 'sklearn', 'rdtools') if m in sys.modules])")
     root = Path(__file__).resolve().parent.parent
-    out = subprocess.run([sys.executable, "-c", code], cwd=root, capture_output=True, text=True, check=True)
+    env = {**os.environ, "PYTHONPATH": str(root / "src")}      # works without `pip install -e .`
+    out = subprocess.run([sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "[]"

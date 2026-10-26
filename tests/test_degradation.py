@@ -1,4 +1,4 @@
-"""Tests of the Phase 4 helpers (src/degradation.py) on SYNTHETIC data, only for testing the code.
+"""Tests of the Phase 4 helpers (src/pv_loss_auditor/degradation.py) on SYNTHETIC data, only for testing the code.
 
 Expected values are worked out by hand (see the comments), not copied from the code output.
 """
@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src import degradation as dg
-from src.config import load_config
-from src.model import expected_power, inverter_dc_kw
+from pv_loss_auditor import degradation as dg
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.model import expected_power, inverter_dc_kw
 
 CONFIG = load_config("configs/system_9069.yaml")
 N_INV = 4
@@ -191,7 +191,7 @@ def test_pr_by_poa_source_leaves_stopped_inverters_out_and_skips_thin_hours():
     assert pr["same"].loc[2021] == pytest.approx(pr["plant"].loc[2021])
 
 
-# --- tables built for the dashboard export (src/degradation.py: yoy_table ... shortfall_split) ---
+# --- tables built for the dashboard export (src/pv_loss_auditor/degradation.py: yoy_table ... shortfall_split) ---
 
 def test_yoy_table_has_both_series_and_both_periods():
     days = pd.date_range("2018-01-01", periods=3 * 365, freq="D")

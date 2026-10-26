@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-from src.coverage import SENTINEL_MAX
+from pv_loss_auditor.coverage import SENTINEL_MAX
 
 STEP = pd.Timedelta("5min")
 STEPS_PER_DAY = 288

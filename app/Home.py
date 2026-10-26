@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import common
-from src import dashboard_data as dd
+from pv_loss_auditor import dashboard_data as dd
 
 st.set_page_config(page_title="PV Loss Auditor", page_icon="☀️", layout="wide")
 price = common.price_control()

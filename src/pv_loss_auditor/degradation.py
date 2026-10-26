@@ -13,8 +13,8 @@ plane-of-array insolation is high enough for a stable ratio (degradation.min_dai
 import numpy as np
 import pandas as pd
 
-from src.kpi import _period, inverter_states, kpi_table, step_hours, weighted_t_ref
-from src.model import expected_power, inverter_dc_kw, weighted_gamma
+from pv_loss_auditor.kpi import _period, inverter_states, kpi_table, step_hours, weighted_t_ref
+from pv_loss_auditor.model import expected_power, inverter_dc_kw, weighted_gamma
 
 
 def daily_normalized_energy(inputs, ac, t_cell, config, gamma=None):

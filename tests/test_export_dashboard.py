@@ -3,9 +3,9 @@
 import numpy as np
 import pandas as pd
 
-from src.config import load_config
-from src.export_dashboard import kpi_tables, waterfall_tables, write_tables
-from src.model import expected_power, weighted_gamma
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.export_dashboard import kpi_tables, waterfall_tables, write_tables
+from pv_loss_auditor.model import expected_power, weighted_gamma
 
 CONFIG = load_config("configs/system_9069.yaml")
 

@@ -8,7 +8,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # `common` lives in app/
 import common  # noqa: E402
-from src.config import load_config  # noqa: E402
+from pv_loss_auditor.config import load_config  # noqa: E402
 
 st.set_page_config(page_title="Methodology · PV Loss Auditor", page_icon="☀️", layout="wide")
 config = load_config(common.ROOT / "configs" / "system_9069.yaml")
@@ -30,7 +30,7 @@ st.markdown(
     "4. **Loss waterfall:** nominal energy → energy at the plant meter, in kWh and USD.\n"
     "5. **Degradation and soiling** (RdTools) and a comparison with reanalysis weather (Open-Meteo).\n"
     "6. **Anomaly detection** on residuals against the other inverters, tested on SYNTHETIC faults.\n"
-    "7. **Export:** `python -m src.export_dashboard` saves the small tables in `app/data/`; this app only reads them.")
+    "7. **Export:** `python -m pv_loss_auditor.export_dashboard` saves the small tables in `app/data/`; this app only reads them.")
 
 # --- plant and data --------------------------------------------------------------------------
 st.header("Plant and data")

@@ -14,8 +14,8 @@ invisible here (it is covered by the waterfall and Phase 4).
 import numpy as np
 import pandas as pd
 
-from src.kpi import inverter_states
-from src.model import expected_power
+from pv_loss_auditor.kpi import inverter_states
+from pv_loss_auditor.model import expected_power
 
 
 def relative_residual(inputs, ac, t_cell, config):
@@ -119,7 +119,7 @@ def forest_scores(x, config):
 def day_labels(index, events, config):
     """Label of each (date, inverter) row: 'fault' (inside a synthetic window), 'excluded'
     (inside a real event excluded from the injection: not clean, not a label) or 'clean'."""
-    from src.synthetic_faults import _blocked_days
+    from pv_loss_auditor.synthetic_faults import _blocked_days
     dates = index.get_level_values("date")
     inverters = index.get_level_values("inverter")
     lab = pd.Series("clean", index=index)

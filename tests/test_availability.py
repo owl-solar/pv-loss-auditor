@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.config import load_config
-from src.losses import availability_revised
-from src.model import expected_power
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.losses import availability_revised
+from pv_loss_auditor.model import expected_power
 
 CONFIG = load_config("configs/system_9069.yaml")
 K = CONFIG["losses"]["inv_to_meter"]

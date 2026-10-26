@@ -3,7 +3,7 @@
 import numpy as np
 import pandas as pd
 
-from src.outages import episode_table, pair_overlap
+from pv_loss_auditor.outages import episode_table, pair_overlap
 
 
 def frame(dates, cols):

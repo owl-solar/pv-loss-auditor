@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src import kpi, model
-from src.config import load_config
+from pv_loss_auditor import kpi, model
+from pv_loss_auditor.config import load_config
 
 CONFIG = load_config("configs/system_9069.yaml")
 

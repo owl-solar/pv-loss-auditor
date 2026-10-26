@@ -5,8 +5,8 @@ import copy
 import numpy as np
 import pandas as pd
 
-from src.config import load_config
-from src.synthetic_faults import eligible_starts, inject_faults, plan_faults
+from pv_loss_auditor.config import load_config
+from pv_loss_auditor.synthetic_faults import eligible_starts, inject_faults, plan_faults
 
 CONFIG = load_config("configs/system_9069.yaml")
 

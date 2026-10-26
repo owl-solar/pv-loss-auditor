@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # `common` lives in app/
 import common  # noqa: E402
-from src import dashboard_data as dd  # noqa: E402
+from pv_loss_auditor import dashboard_data as dd  # noqa: E402
 
 st.set_page_config(page_title="Downtime · PV Loss Auditor", page_icon="☀️", layout="wide")
 down = common.load("down_days")

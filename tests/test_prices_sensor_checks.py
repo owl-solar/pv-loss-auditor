@@ -5,9 +5,9 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from src import prices
-from src import sensor_checks as sc
-from src.config import load_config
+from pv_loss_auditor import prices
+from pv_loss_auditor import sensor_checks as sc
+from pv_loss_auditor.config import load_config
 
 CONFIG = load_config("configs/system_9069.yaml")
 

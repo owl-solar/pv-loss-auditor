@@ -1,6 +1,6 @@
 """Shared pieces of the dashboard pages: data loading, price control, caveat banners, chart style.
 
-Every number comes from the tables exported by src/export_dashboard.py (app/data/), so the app
+Every number comes from the tables exported by src/pv_loss_auditor/export_dashboard.py (app/data/), so the app
 needs neither the raw data nor the model. Caveats live here so that no page can show a USD figure
 or a synthetic result without its warning.
 """
@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT))          # `src` is imported from the repository root
+sys.path.insert(0, str(ROOT / "src"))   # `pv_loss_auditor` is imported from src/ (no install needed)
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -70,7 +70,7 @@ def price_caveat():
 def synthetic_banner():
     """Shown on every result that depends on injected faults."""
     st.warning("**SYNTHETIC faults.** The string faults in this section were injected into the real "
-               "AC series by `src/synthetic_faults.py` (seed 9069); they are not events of the plant. "
+               "AC series by `src/pv_loss_auditor/synthetic_faults.py` (seed 9069); they are not events of the plant. "
                "Faults are abrupt, constant and on the AC side.", icon="⚠️")
 
 

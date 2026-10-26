@@ -20,8 +20,8 @@ import numpy as np
 import pandas as pd
 import pvlib
 
-from src import pvdaq
-from src.config import load_config
+from pv_loss_auditor import pvdaq
+from pv_loss_auditor.config import load_config
 
 TS_LEN = pvdaq.TS_LEN
 SENTINEL_MAX = -250  # values like -297 / -299 / -300 are logger placeholders, not measurements

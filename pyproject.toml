@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools==84.2.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pv-loss-auditor"
+version = "0.1.0"
+description = "Diagnoses PV plant underperformance: expected vs actual generation, KPIs and a loss waterfall in kWh and USD."
+readme = "README.md"
+# Tested with Python 3.13 (Windows, CI on Linux). Direct dependencies only, pinned.
+requires-python = ">=3.13"
+dependencies = [
+    "pandas==3.1.0",
+    "numpy==2.5.4",
+    "pyarrow==26.0.0",          # parquet read/write
+    "pvlib==0.16.1",            # PVWatts DC / inverter, temperature and solar position
+    "pvanalytics==0.2.2",       # data QA, clear-sky detection
+    "rdtools==3.2.1",           # YoY degradation, SRR soiling
+    "scikit-learn==1.9.1",      # Isolation Forest on residuals
+    "pyyaml==6.0.3",            # configs/system_<id>.yaml
+    "matplotlib==3.11.2",       # used internally by RdTools
+]
+
+[project.optional-dependencies]
+data = [
+    "boto3==1.43.118",          # anonymous (unsigned) access to the public OEDI S3 bucket
+    "requests==2.34.2",         # Open-Meteo / price data HTTP APIs
+]
+app = [
+    "plotly==7.1.0",
+    "streamlit==1.66.1",
+]
+notebooks = [
+    "jupyterlab==4.6.4",
+    "ipykernel==7.4.0",
+]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "ruff==0.17.2",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# `pythonpath` lets the tests import the package from src/ and `scripts` from the root
+# even without `pip install -e .`.
+pythonpath = ["src", "."]

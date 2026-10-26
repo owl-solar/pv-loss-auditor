@@ -9,7 +9,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # `common` lives in app/
 import common  # noqa: E402
-from src import dashboard_data as dd  # noqa: E402
+from pv_loss_auditor import dashboard_data as dd  # noqa: E402
 
 st.set_page_config(page_title="Degradation · PV Loss Auditor", page_icon="☀️", layout="wide")
 daily = common.load("daily_series")

@@ -16,7 +16,7 @@ import pandas as pd
 import pvlib
 import pyarrow.parquet as pq
 
-from src.clean import load_clean
+from pv_loss_auditor.data import load_clean
 
 
 def valid(data, column):

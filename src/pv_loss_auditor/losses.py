@@ -8,7 +8,7 @@ steps add up to (nominal - metered) by construction:
   - design DC losses   LID, mismatch, wiring, ... (an ASSUMPTION, see `model:` in the config)
   - inverter           PVWatts efficiency curve, unclipped
   - clipping           AC above the inverter rating
-  = expected           the model of src/model.py
+  = expected           the model of src/pv_loss_auditor/model.py
   - downtime           inverter reports ~0 at daylight (AC < 1 % of rating at POA > 50 W/m2)
   - unknown AC         inverter-steps with no valid AC value (missing or flagged)
   - channel credit     energy that the meter sees but the inverter channels do not report
@@ -29,9 +29,9 @@ import copy
 import numpy as np
 import pandas as pd
 
-from src.kpi import _period, inverter_states, step_hours
-from src.loss_groups import CAUSES, STEPS, by_cause  # noqa: F401  (re-exported: losses.STEPS etc.)
-from src.model import dc_loss_fraction, expected_power, inverter_dc_kw, weighted_gamma
+from pv_loss_auditor.kpi import _period, inverter_states, step_hours
+from pv_loss_auditor.loss_groups import CAUSES, STEPS, by_cause  # noqa: F401  (re-exported: losses.STEPS etc.)
+from pv_loss_auditor.model import dc_loss_fraction, expected_power, inverter_dc_kw, weighted_gamma
 
 
 def inverter_ac_unclipped(p_dc_kw, config):

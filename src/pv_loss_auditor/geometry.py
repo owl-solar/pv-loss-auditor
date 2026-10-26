@@ -5,7 +5,7 @@ Measured POA (reference cells) is compared with POA modelled for the metadata ge
 mounting config identified". Two irradiance inputs are used for the models:
 - measured GHI -> Erbs decomposition -> Perez transposition: real sky, decomposition error;
 - clear-sky Ineichen GHI/DNI/DHI -> Perez: no decomposition error, valid on clear points only.
-All inputs must be on a tz-aware UTC index (see src/timealign.py).
+All inputs must be on a tz-aware UTC index (see src/pv_loss_auditor/timealign.py).
 """
 
 import numpy as np

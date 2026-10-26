@@ -15,8 +15,8 @@ A gap in one inverter's data removes only that inverter-step, not the whole plan
 
 import pandas as pd
 
-from src.geometry import LOCAL_TZ
-from src.model import inverter_dc_kw
+from pv_loss_auditor.geometry import LOCAL_TZ
+from pv_loss_auditor.model import inverter_dc_kw
 
 
 def step_hours(index):
