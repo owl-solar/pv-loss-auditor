@@ -269,6 +269,9 @@ README results).
   checked by the user's screenshots.
 
 ### Where we stopped (end of chat 7, 2026-10-25; the production refactor of chat 8 is below)
+**Update chat 8 (2026-10-26): the dashboard IS deployed**: https://pv-loss-auditor-dstppe2d7qk48g7dd3ugqd.streamlit.app/ (Streamlit Community Cloud, repo `owl-solar/pv-loss-auditor`, `main`,
+`app/Home.py`, Python 3.13). URL and the four screenshots are in the README; items 1-3 below are done. Whether the app opens without
+a login (Share → Public, repo is private) was not confirmed by her yet.
 State: Phase 6 built, 85 tests pass, everything committed and pushed (`main` = `origin/main`,
 last commit `b7de86d`). Tag `v0.1-mvp` stays on `ae8fb82`.
 Waiting on the user (only she can do these, no browser / Streamlit account here):

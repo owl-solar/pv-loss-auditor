@@ -8,7 +8,7 @@ An audit of a utility-scale plant from public measured data: actual generation a
 expectation, plant KPIs, and a loss waterfall in kWh and USD, followed by degradation and soiling analysis and
 anomaly detection on the residuals. Everything is reproducible from public data and checked by unit tests.
 
-<!-- Live dashboard: add the Streamlit Cloud URL here after deployment -->
+**Live dashboard:** [https://pv-loss-auditor-dstppe2d7qk48g7dd3ugqd.streamlit.app/](https://pv-loss-auditor-dstppe2d7qk48g7dd3ugqd.streamlit.app/) (Streamlit Community Cloud; the first load after a pause takes a few seconds).
 
 ## The result in one paragraph
 
@@ -188,6 +188,14 @@ A Streamlit app reads small tables exported from the same code ([`src/pv_loss_au
    comparison, split of the shortfall, and the open questions.
 5. **Anomaly detection:** detection rate against fault size, why a false-alarm budget, real events. Marked SYNTHETIC.
 6. **Methodology:** definitions, assumptions that are mine, what the numbers do not say.
+
+| Summary | Loss waterfall |
+|---|---|
+| ![Losses by cause and year](reports/figures/dashboard_summary.png) | ![Loss waterfall](reports/figures/dashboard_waterfall.png) |
+
+| Downtime and outages | Anomaly detection (synthetic faults, real events) |
+|---|---|
+| ![Down-state map](reports/figures/dashboard_downtime.png) | ![Inverter 30](reports/figures/dashboard_anomalies.png) |
 
 ```powershell
 streamlit run app/Home.py
