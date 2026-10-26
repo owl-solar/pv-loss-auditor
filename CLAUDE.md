@@ -33,7 +33,7 @@ This is project 1 of a chain:
   high-voltage substation on satellite images; inverters / meter 2 = 1.02), in Georgia, which has
   no ISO / RTO and no EIA wholesale hub. Flat **30.19 USD/MWh** = Georgia Power avoided energy
   cost 2026, "Solar Ground-Mounted Fixed Tilt", from the 2025 projections filed with the Georgia
-  PSC (filing #223157, dockets 4822 / 16573; file in `data/raw/prices/`; `src/prices.py`;
+  PSC (filing #223157, dockets 4822 / 16573; file in `data/raw/prices/`; `src/pv_loss_auditor/prices.py`;
   `price:` in the config). Report a band of ±30 % (21.13 … 39.25). Always state: it is a
   projection applied to 2020–2023 (realised 2021–22 wholesale was higher), the utility's avoided
   cost and not this plant's PPA price (unknown). The ranking of loss causes in kWh does not depend
@@ -95,7 +95,7 @@ skipped only because meter, thermocouple and 5-min irradiance data are missing t
 
 ## Clock of 9069 timestamps (resolved in Phase 1)
 Files use different clocks, all UTC−5 in winter / UTC−4 in summer, found from the daily profile vs
-the sun position (`notebooks/01_data_qa.ipynb`, section 2; `src/timealign.py`; `clock` in the config):
+the sun position (`notebooks/01_data_qa.ipynb`, section 2; `src/pv_loss_auditor/timealign.py`; `clock` in the config):
 irradiance and environment switch on **EU dates** (last Sunday of March / October), electrical_ac
 and meter on **US dates** (America/New_York). Each file is converted to UTC with its own rule;
 acceptance test: AC vs reference-cell lag +1.0 h → 0.0 h in every window where the rules differ.
@@ -129,7 +129,7 @@ Sum of inverters / meter 2 = 1.022.
   uncertainty into the degradation rate (done in Phase 4; ERA5 confirms no cell drift).
 
 ## Expected yield and KPIs of 9069 (Phase 2 done)
-`notebooks/02_expected_yield.ipynb`, `src/model.py`, `src/kpi.py`, `src/sensor_checks.py`,
+`notebooks/02_expected_yield.ipynb`, `src/pv_loss_auditor/model.py`, `src/pv_loss_auditor/kpi.py`, `src/pv_loss_auditor/sensor_checks.py`,
 parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use best practice"):
 - POA = mean of cells 04 / 10; T_cell = mean thermocouple 01 / 06 s1 / 10 + 3 °C × G/1000;
   no modelled fallback (measured T on 97.7 % of daylight steps; Faiman default reads +5.8 °C).
@@ -154,7 +154,7 @@ parameters in `model:` / `kpi:` of the config. Decisions (taken by me under "use
   at −0.28; inverters 29–40 slightly flatter (−0.30 vs −0.35), not conclusive.
 
 ## Degradation, soiling and external weather of 9069 (Phase 4 done)
-`notebooks/04_degradation_soiling.ipynb`, `src/degradation.py`, `src/openmeteo.py`,
+`notebooks/04_degradation_soiling.ipynb`, `src/pv_loss_auditor/degradation.py`, `src/pv_loss_auditor/openmeteo.py`,
 `degradation:` in the config; Open-Meteo cache in `data/raw/openmeteo/` (0.9 MB, not committed).
 Decisions (taken with me, options first): RdTools fed with both normalized energy (measured /
 PVWatts expected) and PR (C), running inverters only; shortfall split by per-factor estimates plus
@@ -177,8 +177,7 @@ an unexplained remainder shown as a range; ERA5 + IFS; AOI = ASHRAE b0 0.05.
   data are means of the PRECEDING hour (labels at hour end).
 
 ## Loss waterfall of 9069 (Phase 3 done, MVP not yet published)
-`notebooks/03_loss_waterfall.ipynb`, `src/losses.py`, `tests/` (`python -m pytest`, synthetic
-data only, 57 tests after Phase 5), `losses:` in the config. Decisions (taken with me, options first):
+`notebooks/03_loss_waterfall.ipynb`, `src/pv_loss_auditor/losses.py`, `tests/` (`python -m pytest`, 139 tests after the production refactor), `losses:` in the config. Decisions (taken with me, options first):
 - Sequential cascade in physical order: nominal (P0·G/1000) → temperature (γ nameplate, T_ref
   25 °C) → design DC losses → inverter efficiency → clipping (= expected) → downtime → AC unknown
   → channel credit → running shortfall → meter reconciliation → after inverters (= meter 2).
@@ -198,14 +197,14 @@ data only, 57 tests after Phase 5), `losses:` in the config. Decisions (taken wi
 
 ## Clean dataset of 9069 (Phase 1 done)
 `data/processed/9069/9069_clean_<YYYY-MM>.parquet` (UTC months, 5-min UTC index, values as
-measured + `flag_*` columns; build with `python -m src.clean`), report `reports/9069_qa_report.md`.
+measured + `flag_*` columns; build with `python -m pv_loss_auditor.data`), report `reports/9069_qa_report.md`.
 Sensors to use in Phase 2: POA cells 04 / 10; module temperature thermocouples 01 / 06 s1 / 10;
 ambient temperature station 01 (03 / 06 / 10 hold values 20–27 % of daylight); wind only 45 %.
 Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stale).
 
 ## Anomalies and outages of 9069 (Phase 5 done)
-`notebooks/05_anomaly_detection.ipynb`, `src/anomalies.py`, `src/synthetic_faults.py`,
-`src/outages.py`, `anomalies:` in the config. Decisions (taken with me, options first):
+`notebooks/05_anomaly_detection.ipynb`, `src/pv_loss_auditor/anomalies.py`, `src/pv_loss_auditor/synthetic_faults.py`,
+`src/pv_loss_auditor/outages.py`, `anomalies:` in the config. Decisions (taken with me, options first):
 - Residual = measured / expected AC per inverter, divided by the median of the running inverters
   at the same step (removes season, weather, soiling, the 2021 and 2023 steps; steps with POA >
   200 W/m², model < 90 % of rating, ≥ 10 peers). Healthy inverters sit at fixed offsets 0.96 …
@@ -238,17 +237,17 @@ Inverters 02, 19–22, 25, 26 have frozen readings on 28–82 days (flagged stal
   and faults longer than ~60 days (the 61-day window missed the real 45-day inv30 event); the
   5-minute localisation level was not built; the 2023 step is plant-wide and cannot appear in a
   peer-normalised residual.
-- Outages (`src/outages.py`): stops are real (meter agrees, sum/meter ≈ 1.00) in 2021-10…12 and
+- Outages (`src/pv_loss_auditor/outages.py`): stops are real (meter agrees, sum/meter ≈ 1.00) in 2021-10…12 and
   2022-05-23…12-10 (inverters 23, 24, 35–40 for 149 days); in 2021-01 and 2022-12…2023-11 the
   ratio is 0.80–0.91 with 8–14 inverters "stopped": a substantial share are lost channels.
   A fault of a single string is below the noise (1 string = 0.59 %, robust noise 0.68 %).
 
 ## Dashboard and README (Phase 6: built, not yet deployed or tagged)
-`src/export_dashboard.py` (runs the notebook functions once, ~80 s, deterministic: two exports give
+`src/pv_loss_auditor/export_dashboard.py` (runs the notebook functions once, ~80 s, deterministic: two exports give
 identical files), `app/data/` (25 parquet files + `meta.json`, 350 kB, committed), `app/Home.py`
 (Summary) and `app/pages/1_Loss_waterfall … 5_Methodology.py`, `app/common.py` (data loading,
-price slider, caveat banners, chart style), `src/dashboard_data.py` (pure aggregations, tested),
-`src/loss_groups.py` (STEPS, CAUSES, by_cause; re-exported by `losses`). Run: `streamlit run app/Home.py`.
+price slider, caveat banners, chart style), `src/pv_loss_auditor/dashboard_data.py` (pure aggregations, tested),
+`src/pv_loss_auditor/loss_groups.py` (STEPS, CAUSES, by_cause; re-exported by `losses`). Run: `streamlit run app/Home.py`.
 Decisions (taken with me, I accepted the recommended options): export + pages instead of live computation
 (needed for a public deployment); Plotly; price slider 21.13 … 39.25 USD/MWh; no EUR; light
 theme only (palette validated for light mode); the SYNTHETIC banner on the anomaly page and in its
@@ -259,10 +258,10 @@ README results).
   "3 pp step" is in measured / expected of the running inverters and not in the share of nominal
   energy). A few numbers still come from notebooks and are marked so: cell drift −0.6 / −1.0 %/yr
   (notebook 02), PR dip winter excess 0.3–0.5 pp and low-light ratio 0.71–0.83 (notebooks 03/04).
-- Technical notes: Streamlit does not reload imported modules of `src/`: restart the server after
-  changing `src/`. Pages add `app/` to `sys.path` themselves. `app/requirements.txt` (6 packages,
+- Technical notes: Streamlit does not reload imported modules of `src/pv_loss_auditor/`: restart the server after
+  changing them. Pages add `app/` to `sys.path` themselves. `app/requirements.txt` (6 packages,
   no pvlib / pvanalytics / boto3 / scipy) is what the deployment installs; a test checks that
-  `src.dashboard_data`, `src.config`, `src.loss_groups` import none of the heavy packages.
+  `pv_loss_auditor.dashboard_data`, `.config`, `.loss_groups` import none of the heavy packages.
   Plotly pitfalls met: legend set before `common.style()` is overwritten by it; `line-ns-open`
   markers need `marker.color`; categories are ordered by first appearance across traces.
 - README is rewritten as a case study (result paragraph, table in USD, what the audit found,
@@ -270,7 +269,7 @@ README results).
   Check the charts visually after any chart change: the environment has no browser, so layout is
   checked by the user's screenshots.
 
-### Where we stopped (end of chat 7, 2026-10-25)
+### Where we stopped (end of chat 7, 2026-10-25; the production refactor of chat 8 is below)
 State: Phase 6 built, 85 tests pass, everything committed and pushed (`main` = `origin/main`,
 last commit `b7de86d`). Tag `v0.1-mvp` stays on `ae8fb82`.
 Waiting on the user (only she can do these, no browser / Streamlit account here):
@@ -287,6 +286,46 @@ Decided NOT to do now: **tag v1.0** (only when she asks; she said not now) and t
 event-window question** (widening `anomalies.synthetic.exclude_inverter` for 2020-08-21 … 09-21 is a
 methodological choice: propose options first). Station 1200 (scalability check) is not part of this
 version either.
+
+## Production refactor and CI (chat 8, 2026-10-26)
+Task: bring the repo to production level (package, validation, tests, ruff, CI) **without changing any
+number**. Done in 6 phases, each stopped for my "ok". Where things are:
+- Package `src/pv_loss_auditor/` (src layout, `pyproject.toml`, installed with `pip install -e ".[data,dev]"`;
+  extras `data`, `app`, `notebooks`, `dev`; all versions pinned there; root `requirements.txt` is one line,
+  `app/requirements.txt` stays separate for the Streamlit deployment). `clean.py` became `data.py`; new:
+  `validation.py` (ValueError helpers + warnings), `logs.py` (`setup_logging`, called only from `main()`).
+- All parameters in `configs/system_9069.yaml` (new section `validation:`); `load_config` checks required sections.
+  A root `config.yaml` was NOT created: `configs/` stays for the secondary system 1200.
+- `tests/`: 139 tests. `tests/fixtures/9069_clean/` = 14 days (2020-12-08…21, 353 kB) of the REAL clean data, the
+  one allowed exception to "never commit data" (public NREL data, contains the stop of 12-12…18);
+  `tests/fixtures/golden_values.json` = 127 numbers on the fixture + 2240 on the full period.
+  `scripts/make_fixture.py`, `capture_golden.py`, `compare_golden.py` (was / is / difference, never overwrites).
+- Python 3.13 everywhere including CI (I chose it over 3.12: the pins were only tested on 3.13). CI
+  (`.github/workflows/ci.yml`): ruff check, ruff format --check, pytest --cov, floor 95 % for kpi / losses /
+  model. CI #1 on `56571b2` was green (1 m 43 s). Repo is private; Actions run in the free quota.
+- Ruff: line length 110, rules E W F I B UP; E501 and B905 ignored on purpose (reasons in `pyproject.toml`).
+  Pre-commit uses local hooks (the ruff pinned in `.venv`, nothing is downloaded): activate `.venv` before
+  `git commit` in a terminal, else "Executable ruff not found".
+- Streamlit deployment: `app/common.py` puts `<repo>/src` on `sys.path` (package not installed there); first redeploy after this
+  refactor not yet seen (no browser here).
+- Verified identical before / after: 0 differences at rel. 1e-9 (fixture and full period), 25 dashboard tables.
+- Not done on purpose: type hints and input checks only in config, model, kpi, losses, anomalies, validation
+  (degradation, outages, openmeteo, prices, sensor_checks, synthetic_faults, dashboard_data, plots are as before);
+  CD / scheduled runs, Docker, Streamlit changes, tag v1.0.
+
+## Engineering rules (from this work, apply to every change)
+- **Every new function in `src/pv_loss_auditor/` comes with a test in `tests/`**, and physics tests state the
+  answer worked out by hand, not copied from the program's output.
+- **Before each commit: `ruff check .`, `ruff format .` and `pytest`** (pre-commit does the first two).
+- **`golden_values.json` changes only on purpose**, with the reason in the commit message. A difference after a
+  refactor is a bug to find, never a reason to update the file. Check: `python -m scripts.compare_golden --run fixture`
+  (and `--run full` locally when the calculation code was touched).
+- **Never re-download data; CI runs on fixtures only** (no PVDAQ, Open-Meteo or price download in tests or CI).
+  Tests must not need `data/raw` or `data/processed`: use the fixture or synthetic data labelled SYNTHETIC.
+- Invalid inputs raise `ValueError` with the argument name (use `validation.py`); suspicious but usable data
+  gives `log.warning`. No `print` in the package: use `logging.getLogger(__name__)`; handlers only in `main()`.
+- Randomness always seeded (`random_state` / `default_rng` from the config).
+- Check the clean state of CI-relevant changes with a fresh `git clone` of the repo (no data folders) before pushing.
 
 ## Stack and methodological decisions
 - Python, pandas, pvlib (PVWatts DC / inverter and temperature functions called directly, not
@@ -309,8 +348,12 @@ version either.
 ```
 data/raw/          # downloaded data, not committed (gitignored)
 data/processed/    # cleaned parquet files, not committed
-notebooks/         # 01_data_qa.ipynb, 02_expected_yield.ipynb, ...
-src/               # reusable functions (loading, qa, model, losses, anomalies)
+notebooks/         # 01_data_qa.ipynb, 02_expected_yield.ipynb, ... (import the package)
+src/pv_loss_auditor/  # data, model, kpi, losses, anomalies, degradation, outages, prices, validation, ...
+configs/           # system_<id>.yaml: all parameters
+tests/             # pytest; tests/fixtures/ = 14 real days + golden_values.json
+scripts/           # make_fixture.py, capture_golden.py, compare_golden.py
+.github/workflows/ # ci.yml
 app/               # Streamlit dashboard: Home.py, pages/, common.py, data/ (exported tables), requirements.txt
 reports/figures/   # figures used in README
 ```
@@ -318,13 +361,14 @@ reports/figures/   # figures used in README
 ## Conventions
 - Timestamps: timezone-aware index; store in UTC, convert to local only for plots.
 - Units in column names: `p_ac_kw`, `poa_wm2`, `t_mod_c`, `energy_kwh`.
-- Logic lives in `src/`; notebooks call it and show results and conclusions.
-- Pin dependencies in `requirements.txt`.
+- Logic lives in `src/pv_loss_auditor/`; notebooks import it and show results and conclusions.
+- Pin dependencies in `pyproject.toml` (single source; `app/requirements.txt` for the deployment).
 - Small, descriptive git commits per step.
 - Code, comments and README in English (international employers).
 
 ## Version control
-- Never commit data (data/raw, data/processed) or the virtual environment (.venv).
+- Never commit data (data/raw, data/processed) or the virtual environment (.venv). Only exception: the 14-day
+  fixture in `tests/fixtures/`.
 - API keys only in .env (gitignored); commit .env.example with empty values.
 - Small commits with descriptive messages in English ("Add timezone/DST check in QA", not "update").
 - Before each commit, summarize the changes for me so I can review the diff.

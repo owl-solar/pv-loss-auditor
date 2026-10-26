@@ -27,6 +27,15 @@ as built (temperature, assumed DC losses, inverter efficiency) and 3.4 GWh is lo
 
 The "design" block is the plant as built (and partly an assumption), not a recoverable loss.
 
+Plant KPIs (temperature-corrected PR, variant C, T_ref = 41.5 °C; 2020 covers May-December, 2023 January-November):
+
+| | 2020 | 2021 | 2022 | 2023 |
+|---|---|---|---|---|
+| PR at the plant meter, downtime included | 0.717 | 0.727 | 0.622 | 0.581 |
+| PR of the inverters that run | 0.762 | 0.762 | 0.761 | 0.735 |
+| Availability, energy-based, net of channel loss | 0.967 | 0.971 | 0.838 | 0.791 |
+| Specific yield, kWh/kWp (partial years in 2020 and 2023) | 892 | 1276 | 1120 | 840 |
+
 ![Loss waterfall by year](reports/figures/9069_loss_waterfall.png)
 
 ## What the audit found
@@ -102,6 +111,16 @@ covers the 5-minute steps with daylight, irradiance, cell temperature and meter 
 per year); the channel credit assumes an inverter-to-meter factor of 1.022 (1 pp of it moves the 2023 credit by about
 0.35 GWh); and the anomaly results come from synthetic, abrupt, AC-side faults (62 test events in 14 cells).
 
+## Limitations
+
+- **The string faults are synthetic.** They are injected into the real AC series by an explicit, seeded script
+  (`synthetic_faults.py`), abrupt, constant and AC-side, and are labelled SYNTHETIC in the code, the tests and the
+  dashboard. The detection rates say how well the detectors find *such* faults, not how many real ones the plant had.
+- **Open-Meteo is not on-site POA.** ERA5 and IFS read 1.6-2.0 % above the reference cells and their raw PR is
+  2-6 pp lower; they are used as a cross-check (no cell drift), not as the irradiance of the audit.
+- **The model is not calibrated** and the 6.34 % design DC losses are an assumption (see below).
+- **The price is a projection**, not this plant's PPA price (see below).
+
 ## Data and plant
 
 - **NREL PVDAQ** (Photovoltaic Data Acquisition), public OEDI S3 bucket `s3://oedi-data-lake/pvdaq/`, licence
@@ -170,7 +189,20 @@ A Streamlit app reads small tables exported from the same code ([`src/pv_loss_au
 streamlit run app/Home.py
 ```
 
-## How to reproduce
+## Quick start
+
+No data download is needed to run the tests: a 14-day slice of the real clean dataset (353 kB, containing the
+plant-wide stop of 12-18 December 2020) lives in `tests/fixtures/`.
+```powershell
+py -3.13 -m venv .venv; .\.venv\Scripts\Activate.ps1      # Linux / macOS: python3.13 -m venv .venv && source .venv/bin/activate
+pip install -e ".[data,dev]"                               # the package with its pinned dependencies and test tools
+pytest                                                     # 139 tests, about 20 s
+python -m scripts.compare_golden --run fixture             # re-run the pipeline on the fixture, compare with the golden values
+```
+The dashboard (`pip install -e ".[app]"`, then `streamlit run app/Home.py`) reads the small exported tables in
+`app/data/`, so it runs without the raw data as well.
+
+## How to reproduce the full audit
 
 Windows PowerShell, Python 3.13:
 ```powershell
@@ -195,15 +227,50 @@ Tests (synthetic data only, no download needed):
 ```powershell
 python -m pytest
 ```
+The full-period golden values (below) are checked with `python -m scripts.compare_golden --run full`, which needs
+the processed data and the cached Open-Meteo files (about 1 minute).
+
+## Testing & CI
+
+- **139 tests, about 20 s, no network.** Physics tests with a known answer (PR = 0.85 for 1000 kWh/m² on 100 kW giving
+  85 000 kWh; night hours are not downtime; no clipping at DC/AC = 1.0 below the rating), a waterfall that must close
+  for arbitrary data, `ValueError` on nonsensical inputs, and an end-to-end run on the real 14-day fixture
+  against the golden values. A string fault injected into that fixture must be found by the rule and the forest.
+  Coverage of `kpi.py` is 100 %, `losses.py` 99 %, `model.py` 100 % (the download code is not testable offline).
+- **GitHub Actions** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) on every push and pull request,
+  Python 3.13: `ruff check`, `ruff format --check`, `pytest --cov`, and a coverage floor of 95 % for the KPI, loss and
+  model modules. CI uses only the fixtures in the repository and never downloads data.
+- **Before each commit** (pre-commit, see `.pre-commit-config.yaml`): `ruff check --fix` and `ruff format`.
+- All dependencies are pinned in [`pyproject.toml`](pyproject.toml); randomness is seeded (Isolation Forest, the fault
+  generator and the RdTools bootstrap), so two runs give identical numbers.
+
+## How I verified AI-generated code
+
+The code was written with an AI assistant, so every change was checked against something other than the assistant.
+- **Golden values before and after the refactor.** Before moving any logic I froze 2367 numbers (KPIs, every waterfall
+  step, degradation, soiling, detector results, outage counts) in `tests/fixtures/golden_values.json`: 127 on the
+  14-day fixture and 2240 on the full period. After the refactor (new package, validation, logging, type hints,
+  formatting) the same code produced the same numbers: 0 differences at a relative tolerance of 1e-9, and the 25
+  tables of the dashboard were identical. The file changes only on purpose, with the reason in the commit message.
+- **Physics tests with answers worked out by hand,** not copied from the program's output (see above).
+- **A second source for the formulas:** pvlib's inverter function is compared with my unclipped copy below the
+  rating; PR, availability and the waterfall balance are written in the docstrings next to the code.
+- **Manual review of the formulas and decisions.** Every methodological choice (PR definition, filter thresholds,
+  clipping vs downtime, price) was proposed with options and decided by me; numbers in the captions of the dashboard are
+  computed from the tables, not typed, after several typed ones turned out wrong.
+- **Findings from the tests that were not obvious:** the stuck-sensor test of pvanalytics does not flag the first value
+  of a frozen run; zip() truncation in several places is deliberate and documented in the lint configuration.
 
 ## Repository structure
 ```
-data/raw/          # downloaded data (not committed)
-data/processed/    # cleaned parquet files (not committed)
-notebooks/         # one analysis notebook per phase
-src/               # reusable functions (loading, QA, model, KPIs, losses, degradation, anomalies, export)
-tests/             # unit tests on synthetic inputs
+configs/           # system_<id>.yaml: all parameters (thresholds, prices, contamination, periods)
+src/pv_loss_auditor/  # data (QA, cleaning), model, kpi, losses, anomalies, degradation, outages, prices, ...
+tests/             # physics tests, tests/fixtures/ (14 real days, golden_values.json)
+scripts/           # make_fixture.py, capture_golden.py, compare_golden.py
+notebooks/         # one analysis notebook per phase (they import the package)
 app/               # Streamlit dashboard (app/data/ holds the exported tables)
+.github/workflows/ # CI
+data/raw/, data/processed/   # downloaded and cleaned data (not committed)
 reports/figures/   # figures used in this README
 ```
 
