@@ -13,32 +13,61 @@ contributes P0_inv x G/1000 x dt to the denominator only where that inverter's A
 A gap in one inverter's data removes only that inverter-step, not the whole plant step.
 """
 
+import logging
+from collections.abc import Mapping
+from typing import Any
+
 import pandas as pd
 
 from pv_loss_auditor.geometry import LOCAL_TZ
 from pv_loss_auditor.model import inverter_dc_kw
+from pv_loss_auditor.validation import (check_poa, require_aligned, require_choice, require_nonempty,
+                                        require_positive)
+
+log = logging.getLogger(__name__)
 
 
-def step_hours(index):
-    """Length of one time step in hours (5-min grid -> 1/12)."""
-    return pd.Series(index).diff().median() / pd.Timedelta(hours=1)
+def step_hours(index: pd.DatetimeIndex) -> float:
+    """Length of one time step in hours (5-min grid -> 1/12): the median step of the index."""
+    if len(index) < 2:
+        raise ValueError(f"need at least two time steps to find the step length, got {len(index)}")
+    hours = pd.Series(index).diff().median() / pd.Timedelta(hours=1)
+    if not hours > 0:
+        raise ValueError("time index must be strictly increasing")
+    return hours
 
 
-def reference_power(poa, t_cell, p0_kw, gamma=None, t_ref=None):
-    """P0 x G/1000 x [1 + gamma (T_cell - T_ref)] in kW; without t_ref the factor is 1."""
+def reference_power(poa: pd.Series, t_cell: pd.Series, p0_kw: float, gamma: float | None = None,
+                    t_ref: float | None = None) -> pd.Series:
+    """Reference (expected-at-nameplate) power in kW.
+
+        P_ref = P0 x G_poa / 1000 x [1 + gamma x (T_cell - T_ref)]
+
+    P0 is the DC nameplate (kW), G_poa the plane-of-array irradiance (W/m2), gamma the power
+    temperature coefficient (1/C, negative). Without t_ref the bracket is 1 (variant A).
+    """
+    require_positive(p0_kw, "P0 (nameplate power)")
+    if t_ref is not None and gamma is None:
+        raise ValueError("gamma is required when t_ref is given")
     ref = p0_kw * poa / 1000
     if t_ref is not None:
         ref = ref * (1 + gamma * (t_cell - t_ref))
     return ref
 
 
-def weighted_t_ref(t_cell, poa, mask):
-    """POA-weighted mean cell temperature: the 'typical operating temperature' of the plant."""
+def weighted_t_ref(t_cell: pd.Series, poa: pd.Series, mask: pd.Series) -> float:
+    """POA-weighted mean cell temperature: the 'typical operating temperature' of the plant.
+
+        T_ref = sum(T_cell x G_poa) / sum(G_poa)   over the steps in `mask`
+    """
     m = mask & t_cell.notna() & poa.notna()
+    if not poa[m].sum() > 0:
+        raise ValueError("no irradiance in the selected steps: cannot weight the reference temperature")
     return float((t_cell[m] * poa[m]).sum() / poa[m].sum())
 
 
-def inverter_states(ac, poa, config):
+def inverter_states(ac: pd.DataFrame, poa: pd.Series,
+                    config: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Boolean frames (known, down) per inverter-step, for daylight steps with POA > threshold.
 
     known: POA above the availability threshold and the inverter's AC is valid;
@@ -53,17 +82,36 @@ def inverter_states(ac, poa, config):
     return known, down
 
 
-def _period(index, freq):
+def _period(index: pd.DatetimeIndex, freq: str) -> pd.PeriodIndex:
     """Local-time period label ('M' month, 'Y' year, 'D' day) for grouping."""
     return index.tz_convert(LOCAL_TZ).tz_localize(None).to_period(freq)
 
 
-def kpi_table(inputs, ac, t_cell, config, gamma, t_ref_wc, freq="M"):
-    """KPIs per period. One row per local month / year / day.
+def kpi_table(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Mapping[str, Any],
+              gamma: float, t_ref_wc: float, freq: str = "M") -> pd.DataFrame:
+    """KPIs per period. One row per local month ("M"), year ("Y") or day ("D").
 
     Columns: energy, reference yield, the three PR variants with and without downtime, the meter
     PR, specific yield and time-based availability, plus the share of usable inverter-steps.
+
+    Formulas (sums over the usable inverter-steps of the period, dt in hours):
+
+        PR_variant          = sum(P_ac x dt) / sum(P_ref x dt)
+        P_ref (A raw)       = P0 x G_poa / 1000
+        P_ref (B, C)        = P0 x G_poa / 1000 x [1 + gamma x (T_cell - T_ref)]
+                              T_ref = 25 C (B) or the POA-weighted mean cell temperature (C)
+        specific yield      = sum(P_ac x dt) / (P0 x number of inverters)      [kWh/kWp]
+        availability (time) = 1 - down inverter-steps / known inverter-steps
+                              down: P_ac < down_p_ac_fraction x rating at POA > availability_poa_min_wm2
+    A ratio of sums, never a mean of 5-min ratios.
     """
+    require_nonempty(inputs, "inputs")
+    require_aligned(inputs, ac, ("inputs", "ac"))
+    require_aligned(inputs, t_cell, ("inputs", "t_cell"))
+    require_choice(freq, ("M", "Y", "D"), "freq")
+    if ac.shape[1] == 0:
+        raise ValueError("ac has no inverter columns")
+    check_poa(inputs["poa_wm2"], config)
     dt = step_hours(inputs.index)
     p0_inv = inverter_dc_kw(config)
     n_inv = ac.shape[1]
@@ -131,7 +179,8 @@ def kpi_table(inputs, ac, t_cell, config, gamma, t_ref_wc, freq="M"):
     return out
 
 
-def downtime_share(ac, poa, config, freq="M"):
+def downtime_share(ac: pd.DataFrame, poa: pd.Series, config: Mapping[str, Any],
+                   freq: str = "M") -> pd.DataFrame:
     """Share of lit, known inverter-steps with the inverter down: inverters x periods."""
     known, down = inverter_states(ac, poa, config)
     period = _period(ac.index, freq)
