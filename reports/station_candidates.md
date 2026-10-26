@@ -1,6 +1,6 @@
 # PVDAQ station candidates
 
-Shortlist for Phase 1, screened against the selection criteria in `CLAUDE.md`.
+Shortlist for Phase 1, screened against the selection criteria of the project (see the README, section "Data and plant").
 Source: PVDAQ metadata only (no time series downloaded), OEDI bucket `s3://oedi-data-lake/pvdaq/`:
 `csv/systems_20250729.csv`, `parquet/{metrics,inverters,mount}/`,
 `2023-solar-data-prize/<id>_OEDI/metadata/*_system_metadata.json`.

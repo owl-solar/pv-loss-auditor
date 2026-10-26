@@ -30,3 +30,7 @@ Thumbs.db
 htmlcov/
 .pytest_cache/
 .ruff_cache/
+
+# Working notes for the AI assistant (kept locally, not part of the published project)
+CLAUDE.md
+.claude/

@@ -70,7 +70,7 @@ data:
   timestamp_column: measured_on      # naive "YYYY-MM-DD HH:MM:SS", time zone unknown
   # 2019 rejected: meter data gap 2019-04-04 07:00 .. 2020-03-26 06:55, irradiance at 15-min steps.
   sample_months: ["2020-06", "2020-12"]
-  max_download_mb: 100               # CLAUDE.md: ask before any download above this
+  max_download_mb: 100               # project rule: ask before any download above this
   out_dir: data/raw/pvdaq/9069_sample
   header_cache: data/raw/pvdaq/9069_sample/headers.json
   # Wide CSV files (one row per 5-min step, one column per channel).
@@ -278,7 +278,7 @@ losses:
 # Connection type (decided with the user from satellite images and the data): utility-scale,
 # behind step-up transformers, next to a high-voltage substation (sum of inverters / meter 2 =
 # 1.02 = transformer losses). Georgia has no ISO / RTO, so there is no LMP (gridstatus) and the
-# CLAUDE.md branch "plants outside ISO regions" applies. No regional wholesale series was found
+# project branch "plants outside ISO regions" applies. No regional wholesale series was found
 # at EIA (its hubs do not cover the Southeast; the Georgia figure there is retail).
 price:
   source: >
