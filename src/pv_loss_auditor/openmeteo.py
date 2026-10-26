@@ -17,8 +17,14 @@ import pandas as pd
 import requests
 
 URL = "https://archive-api.open-meteo.com/v1/archive"
-HOURLY = ["shortwave_radiation", "direct_normal_irradiance", "diffuse_radiation",
-          "temperature_2m", "wind_speed_10m", "precipitation"]
+HOURLY = [
+    "shortwave_radiation",
+    "direct_normal_irradiance",
+    "diffuse_radiation",
+    "temperature_2m",
+    "wind_speed_10m",
+    "precipitation",
+]
 MODELS = {"era5": "era5", "ifs": "ecmwf_ifs"}
 
 
@@ -29,9 +35,13 @@ def fetch(source, config, out_dir="data/raw/openmeteo"):
         return pd.read_parquet(path)
     sysc = config["system"]
     params = {
-        "latitude": sysc["latitude"], "longitude": sysc["longitude"],
-        "start_date": "2020-05-01", "end_date": "2023-11-30",
-        "hourly": ",".join(HOURLY), "models": MODELS[source], "timezone": "UTC",
+        "latitude": sysc["latitude"],
+        "longitude": sysc["longitude"],
+        "start_date": "2020-05-01",
+        "end_date": "2023-11-30",
+        "hourly": ",".join(HOURLY),
+        "models": MODELS[source],
+        "timezone": "UTC",
     }
     response = requests.get(URL, params=params, timeout=120)
     response.raise_for_status()
@@ -54,15 +64,24 @@ def poa_from_weather(weather, config, albedo=0.2):
 
     sysc, mount = config["system"], config["mount"]
     mid_hour = weather.index - pd.Timedelta(minutes=30)
-    sun = pvlib.solarposition.get_solarposition(mid_hour, sysc["latitude"], sysc["longitude"],
-                                                sysc["elevation_m"])
+    sun = pvlib.solarposition.get_solarposition(
+        mid_hour, sysc["latitude"], sysc["longitude"], sysc["elevation_m"]
+    )
     dni_extra = pvlib.irradiance.get_extra_radiation(mid_hour)
     airmass = pvlib.atmosphere.get_relative_airmass(sun["apparent_zenith"])
     total = pvlib.irradiance.get_total_irradiance(
-        mount["tilt_deg"], mount["azimuth_deg"], sun["apparent_zenith"].to_numpy(),
-        sun["azimuth"].to_numpy(), weather["direct_normal_irradiance"].to_numpy(),
-        weather["shortwave_radiation"].to_numpy(), weather["diffuse_radiation"].to_numpy(),
-        dni_extra=dni_extra.to_numpy(), airmass=airmass.to_numpy(), albedo=albedo, model="perez")
+        mount["tilt_deg"],
+        mount["azimuth_deg"],
+        sun["apparent_zenith"].to_numpy(),
+        sun["azimuth"].to_numpy(),
+        weather["direct_normal_irradiance"].to_numpy(),
+        weather["shortwave_radiation"].to_numpy(),
+        weather["diffuse_radiation"].to_numpy(),
+        dni_extra=dni_extra.to_numpy(),
+        airmass=airmass.to_numpy(),
+        albedo=albedo,
+        model="perez",
+    )
     return pd.Series(total["poa_global"], index=weather.index, name="poa_wm2").fillna(0)
 
 
@@ -79,23 +98,32 @@ def aoi_loss(weather, config, b0=0.05, albedo=0.2):
 
     sysc, mount = config["system"], config["mount"]
     mid_hour = weather.index - pd.Timedelta(minutes=30)
-    sun = pvlib.solarposition.get_solarposition(mid_hour, sysc["latitude"], sysc["longitude"],
-                                                sysc["elevation_m"])
+    sun = pvlib.solarposition.get_solarposition(
+        mid_hour, sysc["latitude"], sysc["longitude"], sysc["elevation_m"]
+    )
     zenith, azimuth = sun["apparent_zenith"].to_numpy(), sun["azimuth"].to_numpy()
     total = pvlib.irradiance.get_total_irradiance(
-        mount["tilt_deg"], mount["azimuth_deg"], zenith, azimuth,
-        weather["direct_normal_irradiance"].to_numpy(), weather["shortwave_radiation"].to_numpy(),
+        mount["tilt_deg"],
+        mount["azimuth_deg"],
+        zenith,
+        azimuth,
+        weather["direct_normal_irradiance"].to_numpy(),
+        weather["shortwave_radiation"].to_numpy(),
         weather["diffuse_radiation"].to_numpy(),
         dni_extra=pvlib.irradiance.get_extra_radiation(mid_hour).to_numpy(),
         airmass=pvlib.atmosphere.get_relative_airmass(sun["apparent_zenith"]).to_numpy(),
-        albedo=albedo, model="perez")
+        albedo=albedo,
+        model="perez",
+    )
     aoi = pvlib.irradiance.aoi(mount["tilt_deg"], mount["azimuth_deg"], zenith, azimuth)
     iam_beam = pvlib.iam.ashrae(aoi, b=b0)
     iam_diffuse = pvlib.iam.marion_diffuse("ashrae", mount["tilt_deg"], b=b0)
-    effective = (total["poa_direct"] * iam_beam
-                 + total["poa_sky_diffuse"] * iam_diffuse["sky"]
-                 + total["poa_ground_diffuse"] * iam_diffuse["ground"])
+    effective = (
+        total["poa_direct"] * iam_beam
+        + total["poa_sky_diffuse"] * iam_diffuse["sky"]
+        + total["poa_ground_diffuse"] * iam_diffuse["ground"]
+    )
     poa = np.asarray(total["poa_global"])
-    with np.errstate(divide="ignore", invalid="ignore"):   # night: 0 / 0 -> no loss
+    with np.errstate(divide="ignore", invalid="ignore"):  # night: 0 / 0 -> no loss
         loss = 1 - np.asarray(effective) / poa
     return pd.Series(loss, index=weather.index, name="aoi_loss").fillna(0).clip(lower=0)

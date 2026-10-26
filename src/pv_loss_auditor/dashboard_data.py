@@ -67,7 +67,9 @@ def waterfall_steps(monthly, year=None):
     rows += [{"label": step, "kwh": s[step], "kind": "loss"} for step in STEPS]
     rows += [{"label": "metered", "kwh": s["metered_kwh"], "kind": "total"}]
     frame = pd.DataFrame(rows)
-    gap = frame.loc[0, "kwh"] - frame.loc[frame.kind == "loss", "kwh"].sum() - frame.loc[len(frame) - 1, "kwh"]
+    gap = (
+        frame.loc[0, "kwh"] - frame.loc[frame.kind == "loss", "kwh"].sum() - frame.loc[len(frame) - 1, "kwh"]
+    )
     if abs(gap) > 1.0:
         raise ValueError(f"waterfall steps do not add up: off by {gap:.1f} kWh")
     return frame
@@ -94,11 +96,16 @@ def scale(kwh_table, nominal_kwh, unit, usd_per_mwh):
 # Which presentation group each waterfall step belongs to, and a reader-friendly name.
 STEP_CAUSE = {step: CAUSE_NAMES[cause] for cause, steps in CAUSES.items() for step in steps}
 STEP_LABELS = {
-    "temperature": "Temperature", "dc_losses": "Design DC losses (assumed)",
-    "inverter": "Inverter efficiency", "clipping": "Clipping",
-    "downtime": "Downtime", "unknown_ac": "Unknown AC (no channel value)",
-    "channel_credit": "Channel credit (not a loss)", "running_shortfall": "Running shortfall",
-    "reconciliation": "Meter reconciliation", "after_inverters": "After inverters (transformer, cables)",
+    "temperature": "Temperature",
+    "dc_losses": "Design DC losses (assumed)",
+    "inverter": "Inverter efficiency",
+    "clipping": "Clipping",
+    "downtime": "Downtime",
+    "unknown_ac": "Unknown AC (no channel value)",
+    "channel_credit": "Channel credit (not a loss)",
+    "running_shortfall": "Running shortfall",
+    "reconciliation": "Meter reconciliation",
+    "after_inverters": "After inverters (transformer, cables)",
 }
 
 
@@ -120,8 +127,17 @@ def waterfall_bars(steps, values):
         else:
             start, end = level, level - value
             level = end
-        rows.append({"label": label, "cause": STEP_CAUSE.get(label, "Total"), "value": value, "start": start,
-                     "end": end, "base": min(start, end), "length": abs(end - start)})
+        rows.append(
+            {
+                "label": label,
+                "cause": STEP_CAUSE.get(label, "Total"),
+                "value": value,
+                "start": start,
+                "end": end,
+                "base": min(start, end),
+                "length": abs(end - start),
+            }
+        )
     bars = pd.DataFrame(rows)
     if abs(level - bars["value"].iloc[-1]) > 1e-6 * max(1.0, abs(bars["value"].iloc[0])):
         raise ValueError("waterfall bars do not end at the metered total")
@@ -166,9 +182,14 @@ def failure_groups(pairs, down_days, min_jaccard=0.95):
     for group in members.values():
         group = sorted(group)
         inside = strong[strong["a"].isin(group) & strong["b"].isin(group)]
-        rows.append({"group": "+".join(inverter_number(c) for c in group), "inverters": len(group),
-                     "min_jaccard": inside["jaccard"].min(),
-                     "days_all_down": int((down_days[group] == 1).all(axis=1).sum())})
+        rows.append(
+            {
+                "group": "+".join(inverter_number(c) for c in group),
+                "inverters": len(group),
+                "min_jaccard": inside["jaccard"].min(),
+                "days_all_down": int((down_days[group] == 1).all(axis=1).sum()),
+            }
+        )
     return pd.DataFrame(rows).sort_values("group").reset_index(drop=True)
 
 
@@ -188,7 +209,6 @@ def meter_verdict(ratio_median, agree=0.97, disagree=0.95):
 def rolling_median(series, window=61, min_periods=20):
     """Centred rolling median on a regular daily grid (NaN days stay in, so `window` rows = days)."""
     return series.asfreq("D").rolling(window, center=True, min_periods=min_periods).median()
-
 
 
 def detection_rate(by_cell, criterion="far", duration=None):

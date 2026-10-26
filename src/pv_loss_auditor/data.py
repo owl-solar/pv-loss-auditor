@@ -42,8 +42,10 @@ def load_utc(config):
         folder = Path(config["period"]["out_dir"]) / file
         paths = sorted(folder.glob(f"{file}_*.parquet"))
         if not paths:
-            raise ValueError(f"no monthly parquet files for '{file}' in {folder}: "
-                             "run `python -m pv_loss_auditor.pvdaq --period` first")
+            raise ValueError(
+                f"no monthly parquet files for '{file}' in {folder}: "
+                "run `python -m pv_loss_auditor.pvdaq --period` first"
+            )
         cols = _select(pd.read_parquet(paths[0]).columns, cl["keep"][file])
         raw = pd.concat([pd.read_parquet(p, columns=cols) for p in paths])
         raw = raw[~raw.index.duplicated()]
@@ -124,10 +126,12 @@ def flag_sensor_limits(data, limits):
 
 def flag_ac(data, columns, cl, ac_rating_kw):
     """AC power above ac_max_fraction x rating or below ac_min_kw."""
-    return pd.DataFrame({
-        f"flag_range__{c}": (data[c] > cl["ac_max_fraction"] * ac_rating_kw) | (data[c] < cl["ac_min_kw"])
-        for c in columns
-    })
+    return pd.DataFrame(
+        {
+            f"flag_range__{c}": (data[c] > cl["ac_max_fraction"] * ac_rating_kw) | (data[c] < cl["ac_min_kw"])
+            for c in columns
+        }
+    )
 
 
 def build_clean(config):
@@ -141,7 +145,7 @@ def build_clean(config):
     inv_cols = [c for c in data.columns if re.match(r"p_ac_inv\d{2}_kw$", c)]
     sensor_cols = ghi_cols + poa_cols + [c for c in data.columns if c.startswith(("t_", "wind_"))]
     flags = [
-        flag_irradiance(data, site, ghi_cols, poa_cols, cl),   # first: it zeroes night offsets
+        flag_irradiance(data, site, ghi_cols, poa_cols, cl),  # first: it zeroes night offsets
         flag_stale(data, sensor_cols, cl),
         flag_sensor_limits(data, cl["sensor_limits"]),
         flag_stale(data, inv_cols, cl, ac_rating_kw=rating),
@@ -171,16 +175,22 @@ def load_clean(config, columns=None):
     """Read the clean dataset back (all months)."""
     paths = sorted(Path(config["clean"]["out_dir"]).glob("9069_clean_*.parquet"))
     if not paths:
-        raise ValueError(f"no clean parquet files in {config['clean']['out_dir']}: "
-                         "run `python -m pv_loss_auditor.data` first")
+        raise ValueError(
+            f"no clean parquet files in {config['clean']['out_dir']}: "
+            "run `python -m pv_loss_auditor.data` first"
+        )
     return pd.concat([pd.read_parquet(p, columns=columns) for p in paths])
 
 
 def flag_summary(data):
     """Per channel: % valid in daylight and % of daylight steps carrying each flag."""
     day = data["flag_daylight"]
-    channels = [c for c in data.columns if not c.startswith("flag_")
-                and c not in ("sun_elevation_deg", "ghi_clearsky_wm2", "poa_clearsky_wm2")]
+    channels = [
+        c
+        for c in data.columns
+        if not c.startswith("flag_")
+        and c not in ("sun_elevation_deg", "ghi_clearsky_wm2", "poa_clearsky_wm2")
+    ]
     rows = []
     for ch in channels:
         row = {"channel": ch, "valid_daylight_pct": 100 * data.loc[day, ch].notna().mean()}
@@ -197,11 +207,14 @@ def compact_summary(summary):
     """flag_summary with the 40 inverters folded into one row (median and worst inverter)."""
     inv = summary[summary.index.str.match(r"p_ac_inv\d{2}_kw$")]
     rest = summary.drop(inv.index)
-    folded = pd.DataFrame({
-        "valid_daylight_pct": [inv["valid_daylight_pct"].median(), inv["valid_daylight_pct"].min()],
-        "stale_pct": [inv["stale_pct"].median(), inv["stale_pct"].max()],
-        "range_pct": [inv["range_pct"].median(), inv["range_pct"].max()],
-    }, index=["p_ac_inv01..40_kw (median)", "p_ac_inv01..40_kw (worst)"])
+    folded = pd.DataFrame(
+        {
+            "valid_daylight_pct": [inv["valid_daylight_pct"].median(), inv["valid_daylight_pct"].min()],
+            "stale_pct": [inv["stale_pct"].median(), inv["stale_pct"].max()],
+            "range_pct": [inv["range_pct"].median(), inv["range_pct"].max()],
+        },
+        index=["p_ac_inv01..40_kw (median)", "p_ac_inv01..40_kw (worst)"],
+    )
     return pd.concat([rest, folded]).rename_axis("channel")
 
 
@@ -223,31 +236,41 @@ def write_report(data, sentinels, config, path, findings=""):
     """Markdown QA report: settings, flag shares per channel, monthly usable share, findings."""
     cl = config["clean"]
     summary = compact_summary(flag_summary(data))
-    key = ["ghi_pyr12_wm2", "poa_ref01_wm2", "poa_ref04_wm2", "poa_ref10_wm2", "poa_pyr02b_wm2",
-           "t_mod_tc01s1_c", "t_mod_tc03s1_c", "t_mod_tc06s1_c", "t_mod_tc10s1_c",
-           "t_amb_ws01s1_c", "p_ac_meter2_kw"]
+    key = [
+        "ghi_pyr12_wm2",
+        "poa_ref01_wm2",
+        "poa_ref04_wm2",
+        "poa_ref10_wm2",
+        "poa_pyr02b_wm2",
+        "t_mod_tc01s1_c",
+        "t_mod_tc03s1_c",
+        "t_mod_tc06s1_c",
+        "t_mod_tc10s1_c",
+        "t_amb_ws01s1_c",
+        "p_ac_meter2_kw",
+    ]
     monthly = monthly_valid(data, [k for k in key if k in data])
     monthly.columns = [c.replace("_wm2", "").replace("_kw", "").replace("_c", "") for c in monthly.columns]
     text = f"""# QA report — PVDAQ 9069 (Simon Solar Farm), {data.index.min():%Y-%m-%d} … {data.index.max():%Y-%m-%d} UTC
 
 Generated by `src/pv_loss_auditor/data.py` (notebook `01_data_qa.ipynb`, section 4). Clean data:
-`{cl['out_dir']}/9069_clean_<YYYY-MM>.parquet`, one file per UTC month, 5-min steps,
-{data.shape[1]} columns ({sum(c.startswith('flag_') for c in data.columns)} of them flags).
+`{cl["out_dir"]}/9069_clean_<YYYY-MM>.parquet`, one file per UTC month, 5-min steps,
+{data.shape[1]} columns ({sum(c.startswith("flag_") for c in data.columns)} of them flags).
 
 ## Rules
 - All files converted to UTC with their own clock rule (irradiance, environment: EU DST dates on
   UTC−5; electrical_ac, meter: America/New_York). The skipped / repeated hour at a switch is dropped.
 - Values are kept as measured. Only changes: logger placeholders (≤ −250) → NaN
-  ({int(sentinels.sum())} values, all in {', '.join(sentinels[sentinels > 0].index) or '–'});
-  night irradiance in [{cl['night_offset_floor_wm2']}, 0) W/m² → 0 (`flag_night_zeroed__*`).
-- `flag_stale__*`: ≥ {cl['stale_window_steps']} identical consecutive values (pvanalytics
-  `stale_values_diff`) with sun > {cl['stale_min_elevation_deg']}°. For AC power, exact 0 (inverter
-  off) and the clipping plateau (≥ {cl['ac_clip_fraction']:.0%} of rating) are not flagged.
-- `flag_range__*`: GHI outside QCRAD physical limits; POA > {cl['poa_cs_factor']} × clear-sky POA
-  + {cl['poa_cs_offset_wm2']} W/m² or < {cl['irradiance_min_day_wm2']} W/m² by day; AC > {cl['ac_max_fraction']:.0%}
-  of rating (825 kW per inverter, 33 000 kW for the meter) or < {cl['ac_min_kw']} kW per inverter;
-  irradiance at night below {cl['night_offset_floor_wm2']} W/m²; temperature and wind outside
-  {', '.join(f'{p.strip("^_")} {lo}…{hi}' for p, (lo, hi) in cl['sensor_limits'].items())}.
+  ({int(sentinels.sum())} values, all in {", ".join(sentinels[sentinels > 0].index) or "–"});
+  night irradiance in [{cl["night_offset_floor_wm2"]}, 0) W/m² → 0 (`flag_night_zeroed__*`).
+- `flag_stale__*`: ≥ {cl["stale_window_steps"]} identical consecutive values (pvanalytics
+  `stale_values_diff`) with sun > {cl["stale_min_elevation_deg"]}°. For AC power, exact 0 (inverter
+  off) and the clipping plateau (≥ {cl["ac_clip_fraction"]:.0%} of rating) are not flagged.
+- `flag_range__*`: GHI outside QCRAD physical limits; POA > {cl["poa_cs_factor"]} × clear-sky POA
+  + {cl["poa_cs_offset_wm2"]} W/m² or < {cl["irradiance_min_day_wm2"]} W/m² by day; AC > {cl["ac_max_fraction"]:.0%}
+  of rating (825 kW per inverter, 33 000 kW for the meter) or < {cl["ac_min_kw"]} kW per inverter;
+  irradiance at night below {cl["night_offset_floor_wm2"]} W/m²; temperature and wind outside
+  {", ".join(f"{p.strip('^_')} {lo}…{hi}" for p, (lo, hi) in cl["sensor_limits"].items())}.
 - Not included: inverter heatsink temperatures (clock not established) and thermocouple 03 s1
   (implausible for the whole period, see findings).
 
@@ -279,8 +302,10 @@ def main():
     config = load_config(args.config)
     data, sentinels = build_clean(config)
     paths = save_monthly(data, config["clean"]["out_dir"])
-    log.info(f"{len(paths)} monthly files written to {config['clean']['out_dir']}, "
-          f"{data.shape[0]} steps x {data.shape[1]} columns")
+    log.info(
+        f"{len(paths)} monthly files written to {config['clean']['out_dir']}, "
+        f"{data.shape[0]} steps x {data.shape[1]} columns"
+    )
 
 
 def to_markdown(df, floatfmt="{:.2f}"):
@@ -289,8 +314,10 @@ def to_markdown(df, floatfmt="{:.2f}"):
     sep = "|" + "---|" * (len(df.columns) + 1)
     lines = [head, sep]
     for idx, row in df.iterrows():
-        cells = ["–" if pd.isna(v) else (floatfmt.format(v) if isinstance(v, (float, np.floating)) else str(v))
-                 for v in row]
+        cells = [
+            "–" if pd.isna(v) else (floatfmt.format(v) if isinstance(v, (float, np.floating)) else str(v))
+            for v in row
+        ]
         lines.append("| " + " | ".join([str(idx)] + cells) + " |")
     return "\n".join(lines)
 

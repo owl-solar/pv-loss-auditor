@@ -23,8 +23,7 @@ class Site:
         self.index = index
         self.solpos = self.location.get_solarposition(index)
         # Ineichen with monthly Linke turbidity from the climatology bundled with pvlib.
-        self.clearsky = self.location.get_clearsky(index, model="ineichen",
-                                                   solar_position=self.solpos)
+        self.clearsky = self.location.get_clearsky(index, model="ineichen", solar_position=self.solpos)
         self.dni_extra = pvlib.irradiance.get_extra_radiation(index)
         self.airmass = pvlib.atmosphere.get_relative_airmass(self.solpos["apparent_zenith"])
 
@@ -40,16 +39,30 @@ class Site:
         """Modelled POA global (W/m2), Perez transposition. Tilt/azimuth may be Series (tracker)."""
         g, dni, dhi = self.components(ghi)
         return pvlib.irradiance.get_total_irradiance(
-            surface_tilt, surface_azimuth,
-            self.solpos["apparent_zenith"], self.solpos["azimuth"], dni, g, dhi,
-            dni_extra=self.dni_extra, airmass=self.airmass, model="perez", albedo=albedo,
+            surface_tilt,
+            surface_azimuth,
+            self.solpos["apparent_zenith"],
+            self.solpos["azimuth"],
+            dni,
+            g,
+            dhi,
+            dni_extra=self.dni_extra,
+            airmass=self.airmass,
+            model="perez",
+            albedo=albedo,
         )["poa_global"]
 
     def tracker_orientation(self, axis_tilt_deg, axis_azimuth_deg, max_angle_deg, backtrack, gcr):
         """Surface tilt and azimuth of a single-axis tracker (pvlib); NaN at night -> flat."""
         st = pvlib.tracking.singleaxis(
-            self.solpos["apparent_zenith"], self.solpos["azimuth"], axis_tilt=axis_tilt_deg,
-            axis_azimuth=axis_azimuth_deg, max_angle=max_angle_deg, backtrack=backtrack, gcr=gcr)
+            self.solpos["apparent_zenith"],
+            self.solpos["azimuth"],
+            axis_tilt=axis_tilt_deg,
+            axis_azimuth=axis_azimuth_deg,
+            max_angle=max_angle_deg,
+            backtrack=backtrack,
+            gcr=gcr,
+        )
         return st["surface_tilt"].fillna(0), st["surface_azimuth"].fillna(axis_azimuth_deg + 90)
 
     def clear_points(self, ghi, window_length=30):
@@ -60,8 +73,9 @@ class Site:
         window; for 5-min data the window is widened to 30 min (6 points) and infer_limits=True
         scales the thresholds to the data interval.
         """
-        return pvlib.clearsky.detect_clearsky(ghi.fillna(0), self.clearsky["ghi"],
-                                              window_length=window_length, infer_limits=True)
+        return pvlib.clearsky.detect_clearsky(
+            ghi.fillna(0), self.clearsky["ghi"], window_length=window_length, infer_limits=True
+        )
 
     def daylight(self, min_elevation_deg):
         return self.solpos["apparent_elevation"] > min_elevation_deg
@@ -86,16 +100,17 @@ def fit_metrics(model, measured, mask):
     mean = measured[ok].mean()
     return {
         "n": int(ok.sum()),
-        "nRMSE_pct": 100 * np.sqrt((err ** 2).mean()) / mean,
+        "nRMSE_pct": 100 * np.sqrt((err**2).mean()) / mean,
         "MBE_pct": 100 * err.mean() / mean,
-        "R2": 1 - (err ** 2).sum() / ((measured[ok] - mean) ** 2).sum(),
+        "R2": 1 - (err**2).sum() / ((measured[ok] - mean) ** 2).sum(),
     }
 
 
 def orientation_grid(site, measured, mask, tilts, azimuths, ghi=None):
     """nRMSE (%) of fixed-tilt POA for every (tilt, azimuth): a table, tilts x azimuths."""
-    table = pd.DataFrame(index=pd.Index(tilts, name="tilt_deg"),
-                         columns=pd.Index(azimuths, name="azimuth_deg"), dtype=float)
+    table = pd.DataFrame(
+        index=pd.Index(tilts, name="tilt_deg"), columns=pd.Index(azimuths, name="azimuth_deg"), dtype=float
+    )
     for tilt in tilts:
         for az in azimuths:
             table.loc[tilt, az] = fit_metrics(site.poa(tilt, az, ghi), measured, mask)["nRMSE_pct"]
@@ -115,8 +130,14 @@ def sensor_agreement(df, reference, mask):
     for col in df.columns.drop(reference):
         ok = mask & df[col].notna() & df[reference].notna()
         x, y = df.loc[ok, reference], df.loc[ok, col]
-        rows.append({"sensor": col, "n": int(ok.sum()), "r": np.corrcoef(x, y)[0, 1],
-                     "ratio_to_reference": y.sum() / x.sum()})
+        rows.append(
+            {
+                "sensor": col,
+                "n": int(ok.sum()),
+                "r": np.corrcoef(x, y)[0, 1],
+                "ratio_to_reference": y.sum() / x.sum(),
+            }
+        )
     return pd.DataFrame(rows).set_index("sensor")
 
 
@@ -128,5 +149,4 @@ def clear_day_inverter_summary(ac, days):
     peak = sel.groupby(day).max()
     energy = sel.clip(lower=0).groupby(day).sum() / 12  # 5-min steps -> kWh
     rel = energy.median() / energy.median().median()
-    return pd.DataFrame({"peak_median_kw": peak.median(), "peak_max_kw": peak.max(),
-                         "energy_rel": rel})
+    return pd.DataFrame({"peak_median_kw": peak.median(), "peak_max_kw": peak.max(), "energy_rel": rel})

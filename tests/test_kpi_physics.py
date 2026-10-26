@@ -24,7 +24,7 @@ def test_pr_ideal_case_is_the_ratio_of_energy_to_reference(config):
     assert r["e_ac_mwh"] == pytest.approx(85.0)
     for variant in ("pr_raw", "pr_stc", "pr_wc", "pr_wc_meter"):
         assert r[variant] == pytest.approx(0.85)
-    assert r["specific_yield_kwh_kwp"] == pytest.approx(850.0)       # 85 000 kWh / 100 kWp
+    assert r["specific_yield_kwh_kwp"] == pytest.approx(850.0)  # 85 000 kWh / 100 kWp
 
 
 def test_temperature_corrected_pr_removes_the_thermal_loss_and_raw_pr_keeps_it(config):
@@ -83,7 +83,7 @@ def test_availability_half_day_outage_is_one_half_and_unknown_data_is_ignored(co
 
 def test_stopped_inverter_lowers_pr_but_not_pr_of_running_inverters(config):
     # Two inverters, one stopped for the whole time: plant PR halves, PR over running inverters does not.
-    cfg = plant_config(config, dc_kw=200, n_inverters=2)           # P0 = 100 kW per inverter
+    cfg = plant_config(config, dc_kw=200, n_inverters=2)  # P0 = 100 kW per inverter
     inputs, ac, t_cell = hourly_plant(np.full(100, 1000.0), 85.0)
     ac["p_ac_inv02_kw"] = 0.0
     r = kpi.kpi_table(inputs, ac, t_cell, cfg, GAMMA, 25.0, freq="Y").iloc[0]

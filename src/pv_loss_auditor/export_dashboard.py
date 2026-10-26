@@ -95,23 +95,28 @@ def degradation_tables(inputs, ac, t_cell, config):
     out = {"daily_series": daily.join(rain.rename("rain_mm")).rename_axis("date")}
     out["degradation_yoy"] = dg.yoy_table(daily)
     # The rate before 2023 depends on the day filters (my assumptions): keep the whole grid.
-    out["degradation_filters"] = dg.filter_sensitivity(inputs, ac, t_cell, config, [1, 2, 3, 4], [0.25, 0.5, 0.8])
+    out["degradation_filters"] = dg.filter_sensitivity(
+        inputs, ac, t_cell, config, [1, 2, 3, 4], [0.25, 0.5, 0.8]
+    )
     soil = dg.soiling_table(daily, rain)
     out["soiling"] = soil
 
     ext = {"era5": om.poa_from_weather(era5, config), "ifs": om.poa_from_weather(ifs, config)}
     stats, ratio = dg.external_poa_comparison(dg.hourly_plant_poa(inputs["poa_wm2"]), ext)
     out["external_poa_stats"] = stats
-    ratio = ratio["2020-05-01":]                         # the first month starts on 30 April local
+    ratio = ratio["2020-05-01":]  # the first month starts on 30 April local
     ratio.index = ratio.index.strftime("%Y-%m")
     out["external_poa_ratio"] = ratio.rename_axis("month")
     out["pr_by_poa_source"] = dg.pr_by_poa_source(inputs, ac, config, ext).rename_axis("year")
 
-    aoi = {b0: dg.weighted_loss_pct(ext["era5"], om.aoi_loss(era5, config, b0=b0)) for b0 in (0.03, 0.05, 0.07)}
+    aoi = {
+        b0: dg.weighted_loss_pct(ext["era5"], om.aoi_loss(era5, config, b0=b0)) for b0 in (0.03, 0.05, 0.07)
+    }
     out["aoi_by_b0"] = pd.DataFrame({"b0": list(aoi), "aoi_loss_pct": list(aoi.values())})
     is_main = (soil.cleaning_info == "rain >= 2 mm + jumps") & (soil.period == "full")
-    out["shortfall_split"] = dg.shortfall_split(daily, float(soil.loc[is_main, "loss_pct"].iloc[0]),
-                                                aoi[0.05]).rename_axis("year")
+    out["shortfall_split"] = dg.shortfall_split(
+        daily, float(soil.loc[is_main, "loss_pct"].iloc[0]), aoi[0.05]
+    ).rename_axis("year")
     return out
 
 
@@ -124,10 +129,10 @@ def anomaly_tables(inputs, ac, t_cell, config):
     A = config["anomalies"]
     feat = an.daily_features(an.relative_residual(inputs, ac, t_cell, config), config)
     x_real = an.own_norm_features(feat, config)
-    sigma = an.robust_sigma(x_real["dev_rel_median"])         # sigma of the REAL data, no faults
+    sigma = an.robust_sigma(x_real["dev_rel_median"])  # sigma of the REAL data, no faults
 
     events = plan_faults(feat["rel_median"].unstack().notna(), config)
-    ac_synth = inject_faults(ac, events)                      # a copy: the real ac is untouched
+    ac_synth = inject_faults(ac, events)  # a copy: the real ac is untouched
     feat_s = an.daily_features(an.relative_residual(inputs, ac_synth, t_cell, config), config)
     x = an.own_norm_features(feat_s, config)
     labels = an.day_labels(x.index, events, config)
@@ -136,25 +141,35 @@ def anomaly_tables(inputs, ac, t_cell, config):
     out = {}
     out["anomaly_summary"] = an.summary_table(results).assign(synthetic=True)
     out["anomaly_by_cell"] = an.detection_by_cell(results).assign(synthetic=True)
-    tuning = [t.assign(criterion=c, detector=name) for c, by_det in results.items()
-              for name, (t, *_rest) in by_det.items()]
+    tuning = [
+        t.assign(criterion=c, detector=name)
+        for c, by_det in results.items()
+        for name, (t, *_rest) in by_det.items()
+    ]
     out["anomaly_tuning"] = pd.concat(tuning, ignore_index=True).assign(synthetic=True)
 
     where = pd.Series("dropped (straddles the split)", index=events.index)
     where[split["ev_tune"].index] = "tuning"
     where[split["ev_test"].index] = "test"
-    out["anomaly_events"] = events.assign(duration_days=(events.end - events.start).dt.days + 1,
-                                          set=where, synthetic=True)
+    out["anomaly_events"] = events.assign(
+        duration_days=(events.end - events.start).dt.days + 1, set=where, synthetic=True
+    )
 
     # Real events found in the daily residuals (config: anomalies.synthetic.exclude_inverter).
     flags = {name: v[4] for name, v in results["far"].items()}
-    real = [e for e in A["synthetic"]["exclude_inverter"] if e["inverter"] in ("p_ac_inv30_kw", "p_ac_inv13_kw")]
+    real = [
+        e for e in A["synthetic"]["exclude_inverter"] if e["inverter"] in ("p_ac_inv30_kw", "p_ac_inv13_kw")
+    ]
     windows = [(e["inverter"], e["start"], e["end"]) for e in real]
     out["anomaly_real_events"] = an.flags_in_windows(flags, windows)
     excluded = (split["lab"] == "excluded").to_numpy()
     out["anomaly_excluded_flag_share"] = pd.DataFrame(
-        {"detector": list(flags), "flagged_share": [float(f[excluded].mean()) for f in flags.values()],
-         "rows": int(excluded.sum())})
+        {
+            "detector": list(flags),
+            "flagged_share": [float(f[excluded].mean()) for f in flags.values()],
+            "rows": int(excluded.sum()),
+        }
+    )
 
     # Inverter 30, the real event of 2020-09-22 ... 11-04: deviation from own norm and the flags.
     idx = x.index.get_level_values
@@ -166,13 +181,23 @@ def anomaly_tables(inputs, ac, t_cell, config):
 
     # Noise of the real data in the units a reader can compare with a fault.
     n_str = A["synthetic"]["strings_per_inverter"]
-    out["anomaly_noise"] = pd.DataFrame([{
-        "robust_sigma": sigma, "rows": len(x_real), "std": float(x_real["dev_rel_median"].std()),
-        "strings_per_inverter": n_str, "one_string_pct": 100 / n_str,
-        "three_sigma_strings": 3 * sigma * n_str,
-        "events": len(events), "events_test": len(split["ev_test"]),
-        "clean_days_test": int(results["far"]["rule (baseline)"][2]["clean_days"]),
-        "far_max": A["forest"]["far_max"], "tune_until": A["forest"]["tune_until"]}])
+    out["anomaly_noise"] = pd.DataFrame(
+        [
+            {
+                "robust_sigma": sigma,
+                "rows": len(x_real),
+                "std": float(x_real["dev_rel_median"].std()),
+                "strings_per_inverter": n_str,
+                "one_string_pct": 100 / n_str,
+                "three_sigma_strings": 3 * sigma * n_str,
+                "events": len(events),
+                "events_test": len(split["ev_test"]),
+                "clean_days_test": int(results["far"]["rule (baseline)"][2]["clean_days"]),
+                "far_max": A["forest"]["far_max"],
+                "tune_until": A["forest"]["tune_until"],
+            }
+        ]
+    )
     return out
 
 
@@ -181,11 +206,12 @@ def meta(config, t_ref):
     base, low, high = prices.price_usd_per_mwh(config)
     return {
         "plant": f"{config['system']['name']} ({config['system']['location']}), PVDAQ {config['system']['id']}",
-        "dc_kw": config["capacity"]["dc_kw"], "ac_kw": config["capacity"]["ac_kw"],
+        "dc_kw": config["capacity"]["dc_kw"],
+        "ac_kw": config["capacity"]["ac_kw"],
         "price_usd_per_mwh": {"base": base, "low": low, "high": high},
         "price_source": config["price"]["source"].strip(),
         "t_ref_c": float(t_ref),
-        "gamma_pct_per_c": float(weighted_gamma(config) * 100),   # DC-weighted nameplate, shown on Methodology
+        "gamma_pct_per_c": float(weighted_gamma(config) * 100),  # DC-weighted nameplate, shown on Methodology
         "design_dc_losses_pct": "6.34 (assumption, no PVsyst report)",
     }
 

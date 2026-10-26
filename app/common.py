@@ -13,7 +13,7 @@ import pandas as pd
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "src"))   # `pv_loss_auditor` is imported from src/ (no install needed)
+sys.path.insert(0, str(ROOT / "src"))  # `pv_loss_auditor` is imported from src/ (no install needed)
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
@@ -50,9 +50,15 @@ def price_control():
     p = meta()["price_usd_per_mwh"]
     with st.sidebar:
         st.subheader("Price assumption")
-        price = st.slider("Energy price, USD/MWh", min_value=round(p["low"], 2),
-                          max_value=round(p["high"], 2), value=round(p["base"], 2), step=0.01,
-                          key="price", help="Base 30.19 USD/MWh, band +-30 %.")
+        price = st.slider(
+            "Energy price, USD/MWh",
+            min_value=round(p["low"], 2),
+            max_value=round(p["high"], 2),
+            value=round(p["base"], 2),
+            step=0.01,
+            key="price",
+            help="Base 30.19 USD/MWh, band +-30 %.",
+        )
         st.caption("USD figures use this flat price. The ranking of causes in kWh does not depend on it.")
     return price
 
@@ -64,31 +70,41 @@ def price_caveat():
         f"**Price:** a flat projection of {p['base']:.2f} USD/MWh (Georgia Power avoided energy cost "
         f"for 2026, solar ground-mounted fixed tilt; band {p['low']:.2f} ... {p['high']:.2f}) applied to "
         "2020-2023. Realised wholesale prices in 2021-2022 were higher, and this is the **utility's "
-        "avoided cost, not this plant's PPA price** (unknown).")
+        "avoided cost, not this plant's PPA price** (unknown)."
+    )
 
 
 def synthetic_banner():
     """Shown on every result that depends on injected faults."""
-    st.warning("**SYNTHETIC faults.** The string faults in this section were injected into the real "
-               "AC series by `src/pv_loss_auditor/synthetic_faults.py` (seed 9069); they are not events of the plant. "
-               "Faults are abrupt, constant and on the AC side.", icon="⚠️")
+    st.warning(
+        "**SYNTHETIC faults.** The string faults in this section were injected into the real "
+        "AC series by `src/pv_loss_auditor/synthetic_faults.py` (seed 9069); they are not events of the plant. "
+        "Faults are abrupt, constant and on the AC side.",
+        icon="⚠️",
+    )
 
 
 def design_loss_caveat():
-    st.caption("**Design losses (6.34 %)** are an assumption (LID, mismatch, wiring, connections, "
-               "nameplate): there is no PVsyst report for this plant. At 4 % / 8 % the running "
-               "shortfall changes from 19.9 to 24.2 / 16.8 GWh; downtime stays within 0.7 GWh.")
+    st.caption(
+        "**Design losses (6.34 %)** are an assumption (LID, mismatch, wiring, connections, "
+        "nameplate): there is no PVsyst report for this plant. At 4 % / 8 % the running "
+        "shortfall changes from 19.9 to 24.2 / 16.8 GWh; downtime stays within 0.7 GWh."
+    )
 
 
 def style(fig, title=None, height=380):
     """Common Plotly look: thin recessive grid, ink-coloured text, legend on top."""
     fig.update_layout(
         title=dict(text=title, font=dict(size=15, color=INK), x=0) if title else None,
-        height=height, paper_bgcolor=SURFACE, plot_bgcolor=SURFACE,
-        font=dict(color=INK_SECONDARY, size=12), margin=dict(l=10, r=10, t=90 if title else 40, b=10),
+        height=height,
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        font=dict(color=INK_SECONDARY, size=12),
+        margin=dict(l=10, r=10, t=90 if title else 40, b=10),
         # traceorder "normal": the legend reads in the order of the stack (bottom to top)
         legend=dict(orientation="h", y=1.14, x=0, font=dict(color=INK), traceorder="normal"),
-        hoverlabel=dict(bgcolor="white", font_color=INK))
+        hoverlabel=dict(bgcolor="white", font_color=INK),
+    )
     fig.update_xaxes(gridcolor=GRID, linecolor=GRID, zerolinecolor=GRID)
     fig.update_yaxes(gridcolor=GRID, linecolor=GRID, zerolinecolor=GRID)
     return fig

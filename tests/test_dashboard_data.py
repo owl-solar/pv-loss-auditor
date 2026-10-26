@@ -17,7 +17,7 @@ def monthly_table():
     t["channel_credit"] = -1000.0
     t["nominal_kwh"] = 100000.0
     t["expected_kwh"] = 60000.0
-    t["metered_kwh"] = t["nominal_kwh"] - t[STEPS].sum(axis=1)       # closes by construction
+    t["metered_kwh"] = t["nominal_kwh"] - t[STEPS].sum(axis=1)  # closes by construction
     return t
 
 
@@ -51,7 +51,7 @@ def test_audit_total_prices_downtime_and_shortfall_only():
     r = dd.audit_total(monthly_table(), usd_per_mwh=30.0)
     # downtime group: 7000 over three months; running shortfall: 1000 + 1000 + 2000 = 4000
     assert r["gwh"] == pytest.approx(11000 / 1e6)
-    assert r["usd"] == pytest.approx(11000 / 1000 * 30.0)          # 11 MWh x 30 USD/MWh = 330 USD
+    assert r["usd"] == pytest.approx(11000 / 1000 * 30.0)  # 11 MWh x 30 USD/MWh = 330 USD
 
 
 def test_waterfall_steps_close_and_keep_the_order():
@@ -74,7 +74,7 @@ def test_scale_units():
     gwh, title, _ = dd.scale(kwh, nominal, "GWh", 30.0)
     assert gwh["Downtime"].tolist() == [2.0, 1.0] and title == "GWh"
     usd, _, _ = dd.scale(kwh, nominal, "USD thousand", 30.0)
-    assert usd["Downtime"].tolist() == [60.0, 30.0]                # 2 000 MWh x 30 USD = 60 000 USD
+    assert usd["Downtime"].tolist() == [60.0, 30.0]  # 2 000 MWh x 30 USD = 60 000 USD
     share, _, _ = dd.scale(kwh, nominal, "% of nominal energy", 30.0)
     assert share["Downtime"].tolist() == [5.0, 2.0]
     with pytest.raises(ValueError):
@@ -82,8 +82,12 @@ def test_scale_units():
 
 
 def test_waterfall_bars_walk_down_and_up_and_end_at_metered():
-    steps = pd.DataFrame({"label": ["nominal", "temperature", "channel_credit", "downtime", "metered"],
-                          "kind": ["total", "loss", "loss", "loss", "total"]})
+    steps = pd.DataFrame(
+        {
+            "label": ["nominal", "temperature", "channel_credit", "downtime", "metered"],
+            "kind": ["total", "loss", "loss", "loss", "total"],
+        }
+    )
     # 100 - 10 (loss) + 2 (a credit is negative) - 5 = 87
     bars = dd.waterfall_bars(steps, [100.0, 10.0, -2.0, 5.0, 87.0])
     assert bars["start"].tolist() == [0.0, 100.0, 90.0, 92.0, 0.0]
@@ -92,7 +96,7 @@ def test_waterfall_bars_walk_down_and_up_and_end_at_metered():
     assert bars["length"].tolist() == [100.0, 10.0, 2.0, 5.0, 87.0]
     assert bars["cause"].tolist() == ["Total", "Design", "Downtime", "Downtime", "Total"]
     with pytest.raises(ValueError):
-        dd.waterfall_bars(steps, [100.0, 10.0, -2.0, 5.0, 80.0])       # does not end at metered
+        dd.waterfall_bars(steps, [100.0, 10.0, -2.0, 5.0, 80.0])  # does not end at metered
 
 
 def test_every_step_has_a_cause_and_a_label():
@@ -107,14 +111,17 @@ def test_monthly_cause_share_is_percent_of_nominal():
 
 
 def test_failure_groups_join_pairs_into_components():
-    pairs = pd.DataFrame({
-        "a": ["p_ac_inv17_kw", "p_ac_inv12_kw", "p_ac_inv35_kw", "p_ac_inv05_kw"],
-        "b": ["p_ac_inv18_kw", "p_ac_inv17_kw", "p_ac_inv36_kw", "p_ac_inv06_kw"],
-        "jaccard": [1.0, 0.97, 0.99, 0.90]})                  # 05+06 is below the 0.95 cut
+    pairs = pd.DataFrame(
+        {
+            "a": ["p_ac_inv17_kw", "p_ac_inv12_kw", "p_ac_inv35_kw", "p_ac_inv05_kw"],
+            "b": ["p_ac_inv18_kw", "p_ac_inv17_kw", "p_ac_inv36_kw", "p_ac_inv06_kw"],
+            "jaccard": [1.0, 0.97, 0.99, 0.90],
+        }
+    )  # 05+06 is below the 0.95 cut
     days = pd.date_range("2022-01-01", periods=4, freq="D")
     cols = ["p_ac_inv12_kw", "p_ac_inv17_kw", "p_ac_inv18_kw", "p_ac_inv35_kw", "p_ac_inv36_kw"]
     down = pd.DataFrame(0.0, index=days, columns=cols)
-    down.loc[days[:3], ["p_ac_inv12_kw", "p_ac_inv17_kw", "p_ac_inv18_kw"]] = 1.0   # 3 days together
+    down.loc[days[:3], ["p_ac_inv12_kw", "p_ac_inv17_kw", "p_ac_inv18_kw"]] = 1.0  # 3 days together
     down.loc[days[0], ["p_ac_inv35_kw", "p_ac_inv36_kw"]] = 1.0
     g = dd.failure_groups(pairs, down)
     assert g["group"].tolist() == ["12+17+18", "35+36"]
@@ -133,26 +140,31 @@ def test_rolling_median_is_centred_and_needs_min_periods():
     days = pd.date_range("2021-01-01", periods=9, freq="D")
     s = pd.Series([1.0, 1.0, 1.0, 9.0, 1.0, 1.0, 1.0, 5.0, 5.0], index=days)
     out = dd.rolling_median(s, window=5, min_periods=3)
-    assert out.iloc[3] == 1.0                       # the outlier 9 does not move the median of 5 days
-    assert out.iloc[0] == 1.0                       # edge: 3 values (1, 1, 1) satisfy min_periods
-    assert out.iloc[7] == 3.0                       # window cut by the end of the series: [1, 1, 5, 5] -> (1+5)/2
+    assert out.iloc[3] == 1.0  # the outlier 9 does not move the median of 5 days
+    assert out.iloc[0] == 1.0  # edge: 3 values (1, 1, 1) satisfy min_periods
+    assert out.iloc[7] == 3.0  # window cut by the end of the series: [1, 1, 5, 5] -> (1+5)/2
     gappy = s.copy()
-    gappy.iloc[:3] = float("nan")                   # window of position 1 holds one valid value (9) < 3
+    gappy.iloc[:3] = float("nan")  # window of position 1 holds one valid value (9) < 3
     assert pd.isna(dd.rolling_median(gappy, window=5, min_periods=3).iloc[1])
 
 
-
 def test_detection_rate_pools_durations_and_keeps_the_event_counts():
-    by_cell = pd.DataFrame({
-        "strings": [5, 5, 5, 5], "duration_days": [21, 60, 21, 60],
-        "detected": [0, 2, 1, 1], "events": [2, 2, 2, 2],
-        "criterion": ["far"] * 4, "detector": ["rule", "rule", "forest", "forest"]})
+    by_cell = pd.DataFrame(
+        {
+            "strings": [5, 5, 5, 5],
+            "duration_days": [21, 60, 21, 60],
+            "detected": [0, 2, 1, 1],
+            "events": [2, 2, 2, 2],
+            "criterion": ["far"] * 4,
+            "detector": ["rule", "rule", "forest", "forest"],
+        }
+    )
     rate, n = dd.detection_rate(by_cell)
-    assert rate.loc[5, "rule"] == 0.5 and rate.loc[5, "forest"] == 0.5     # 2 of 4 and 2 of 4
+    assert rate.loc[5, "rule"] == 0.5 and rate.loc[5, "forest"] == 0.5  # 2 of 4 and 2 of 4
     assert n.loc[5, "rule"] == 4
     rate60, n60 = dd.detection_rate(by_cell, duration=60)
     assert rate60.loc[5, "rule"] == 1.0 and rate60.loc[5, "forest"] == 0.5 and n60.loc[5, "rule"] == 2
-    assert dd.detection_rate(by_cell, criterion="f1")[0].empty             # no rows for another criterion
+    assert dd.detection_rate(by_cell, criterion="f1")[0].empty  # no rows for another criterion
 
 
 def test_dashboard_modules_do_not_import_the_heavy_stack():
@@ -163,9 +175,13 @@ def test_dashboard_modules_do_not_import_the_heavy_stack():
     import sys
     from pathlib import Path
 
-    code = ("import sys, pv_loss_auditor.dashboard_data, pv_loss_auditor.config, pv_loss_auditor.loss_groups; "
-            "print([m for m in ('pvlib', 'pvanalytics', 'boto3', 'scipy', 'sklearn', 'rdtools') if m in sys.modules])")
+    code = (
+        "import sys, pv_loss_auditor.dashboard_data, pv_loss_auditor.config, pv_loss_auditor.loss_groups; "
+        "print([m for m in ('pvlib', 'pvanalytics', 'boto3', 'scipy', 'sklearn', 'rdtools') if m in sys.modules])"
+    )
     root = Path(__file__).resolve().parent.parent
-    env = {**os.environ, "PYTHONPATH": str(root / "src")}      # works without `pip install -e .`
-    out = subprocess.run([sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True, check=True)
+    env = {**os.environ, "PYTHONPATH": str(root / "src")}  # works without `pip install -e .`
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=root, env=env, capture_output=True, text=True, check=True
+    )
     assert out.stdout.strip() == "[]"

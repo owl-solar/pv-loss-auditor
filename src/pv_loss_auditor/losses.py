@@ -54,26 +54,28 @@ def inverter_ac_unclipped(p_dc_kw: pd.Series, config: Mapping[str, Any]) -> pd.S
     """
     inv = config["model"]["inverter"]
     eta_nom, eta_ref = inv["eta_inv_nom"], inv["eta_inv_ref"]
-    pdc0 = config["inverters"]["ac_kw"][0]["ac_kw"] / eta_nom   # as in model.expected_power
+    pdc0 = config["inverters"]["ac_kw"][0]["ac_kw"] / eta_nom  # as in model.expected_power
     p_dc = p_dc_kw.clip(lower=0)
-    zeta = (p_dc / pdc0).where(p_dc > 0)                        # avoid 0 / 0 at night
+    zeta = (p_dc / pdc0).where(p_dc > 0)  # avoid 0 / 0 at night
     eta = eta_nom / eta_ref * (-0.0162 * zeta - 0.0059 / zeta + 0.9858)
     return (eta * p_dc).clip(lower=0).fillna(0.0)
 
 
-def waterfall_scope(inputs: pd.DataFrame, ac: pd.DataFrame,
-                    t_cell: pd.Series) -> tuple[pd.Series, pd.DataFrame]:
+def waterfall_scope(
+    inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series
+) -> tuple[pd.Series, pd.DataFrame]:
     """Steps used by the waterfall (daylight, POA, T_cell and meter known) as a Series, and the
     same as a frame with one column per inverter."""
-    scope = (inputs["daylight"] & inputs["poa_wm2"].notna() & t_cell.notna()
-             & inputs["p_ac_meter_kw"].notna())
-    scope_2d = pd.DataFrame(np.repeat(scope.to_numpy()[:, None], ac.shape[1], axis=1),
-                            index=ac.index, columns=ac.columns)
+    scope = inputs["daylight"] & inputs["poa_wm2"].notna() & t_cell.notna() & inputs["p_ac_meter_kw"].notna()
+    scope_2d = pd.DataFrame(
+        np.repeat(scope.to_numpy()[:, None], ac.shape[1], axis=1), index=ac.index, columns=ac.columns
+    )
     return scope, scope_2d
 
 
-def channel_loss_flag(s_known_kwh: pd.Series, meter_at_ac_kwh: pd.Series, index: pd.DatetimeIndex,
-                      tolerance: float) -> pd.Series:
+def channel_loss_flag(
+    s_known_kwh: pd.Series, meter_at_ac_kwh: pd.Series, index: pd.DatetimeIndex, tolerance: float
+) -> pd.Series:
     """True on every step of a local day whose sum(inverters) / meter is below 1 - tolerance.
 
     s_known_kwh: energy the inverter channels report per step; meter_at_ac_kwh: meter energy
@@ -84,8 +86,14 @@ def channel_loss_flag(s_known_kwh: pd.Series, meter_at_ac_kwh: pd.Series, index:
     return (ratio < 1 - tolerance).fillna(False)
 
 
-def loss_waterfall(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
-                   config: Mapping[str, Any], gamma: float | None = None, freq: str = "Y") -> pd.DataFrame:
+def loss_waterfall(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    gamma: float | None = None,
+    freq: str = "Y",
+) -> pd.DataFrame:
     """Waterfall in kWh per local period (rows), one column per step.
 
     Columns: nominal_kwh, the loss steps in STEPS (kWh, positive = loss), expected_kwh,
@@ -116,21 +124,23 @@ def loss_waterfall(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
 
     # --- model side: one inverter block, then x n inverters --------------------------------
     p0 = inverter_dc_kw(config)
-    nominal = p0 * poa / 1000                                   # kW per inverter
+    nominal = p0 * poa / 1000  # kW per inverter
     after_temp = nominal * (1 + gamma * (t_cell - 25.0))
     after_dc = after_temp * (1 - dc_loss_fraction(config))
     ac_unclipped = inverter_ac_unclipped(after_dc, config)
     ac_expected = expected_power(poa, t_cell, config, gamma)["p_ac_kw"]
     # Model side in kWh for the whole plant, only on steps in scope.
     to_kwh = n * dt
-    w = pd.DataFrame({
-        "nominal_kwh": nominal * to_kwh,
-        "temperature": (nominal - after_temp) * to_kwh,
-        "dc_losses": (after_temp - after_dc) * to_kwh,
-        "inverter": (after_dc - ac_unclipped) * to_kwh,
-        "clipping": (ac_unclipped - ac_expected) * to_kwh,
-        "expected_kwh": ac_expected * to_kwh,
-    }).where(scope, 0.0)
+    w = pd.DataFrame(
+        {
+            "nominal_kwh": nominal * to_kwh,
+            "temperature": (nominal - after_temp) * to_kwh,
+            "dc_losses": (after_temp - after_dc) * to_kwh,
+            "inverter": (after_dc - ac_unclipped) * to_kwh,
+            "clipping": (ac_unclipped - ac_expected) * to_kwh,
+            "expected_kwh": ac_expected * to_kwh,
+        }
+    ).where(scope, 0.0)
 
     # --- measured side ----------------------------------------------------------------------
     _, down_all = inverter_states(ac, poa, config)
@@ -138,9 +148,10 @@ def loss_waterfall(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
     down = down_all & scope_2d
     unknown = ac.isna() & scope_2d
     running = known & ~down
-    exp_2d = pd.DataFrame(np.repeat(ac_expected.to_numpy()[:, None], n, axis=1),
-                          index=ac.index, columns=ac.columns)
-    gap = (exp_2d - ac).where(known)                            # expected - measured, kW
+    exp_2d = pd.DataFrame(
+        np.repeat(ac_expected.to_numpy()[:, None], n, axis=1), index=ac.index, columns=ac.columns
+    )
+    gap = (exp_2d - ac).where(known)  # expected - measured, kW
 
     w["downtime"] = gap.where(down).sum(axis=1) * dt
     w["unknown_ac"] = exp_2d.where(unknown).sum(axis=1) * dt
@@ -150,8 +161,8 @@ def loss_waterfall(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
     k = cfg["inv_to_meter"]
     meter_kwh = (meter * dt).where(scope, 0.0)
     w["after_inverters"] = meter_kwh * (k - 1)
-    s_known = ac.where(known).sum(axis=1) * dt                  # what the channels report
-    diff = meter_kwh * k - s_known                              # what the meter sees on top
+    s_known = ac.where(known).sum(axis=1) * dt  # what the channels report
+    diff = meter_kwh * k - s_known  # what the meter sees on top
 
     # Daily test: low sum(inverters) / meter => channels lose energy (zeros while running).
     channel_day = channel_loss_flag(s_known, meter_kwh * k, inputs.index, cfg["channel_tolerance"])
@@ -175,17 +186,25 @@ def check_closure(table: pd.DataFrame, tolerance_kwh: float = 1.0) -> None:
         raise ValueError(f"waterfall does not close: worst period off by {worst:.1f} kWh")
 
 
-def to_usd(table_kwh: pd.DataFrame, price_base: float, price_low: float,
-           price_high: float) -> dict[str, pd.DataFrame]:
+def to_usd(
+    table_kwh: pd.DataFrame, price_base: float, price_low: float, price_high: float
+) -> dict[str, pd.DataFrame]:
     """Table in kWh -> dict of tables in USD at the base price and the sensitivity band."""
     for name, p in (("base", price_base), ("low", price_low), ("high", price_high)):
         require_positive(p, f"price_{name} (USD/MWh)")
-    return {name: table_kwh * p / 1000
-            for name, p in (("base", price_base), ("low", price_low), ("high", price_high))}
+    return {
+        name: table_kwh * p / 1000
+        for name, p in (("base", price_base), ("low", price_low), ("high", price_high))
+    }
 
 
-def dc_loss_sensitivity(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
-                        config: Mapping[str, Any], gamma: float | None = None) -> pd.DataFrame:
+def dc_loss_sensitivity(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    gamma: float | None = None,
+) -> pd.DataFrame:
     """Annual running shortfall and total losses for each assumed design DC-loss total.
 
     Mostly `dc_losses` and `running_shortfall` trade places (downtime moves slightly because it
@@ -197,17 +216,27 @@ def dc_loss_sensitivity(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Serie
         c = copy.deepcopy(config)
         # One loss item with the whole total: pvwatts_losses combines the items multiplicatively,
         # so a single item reproduces the total exactly.
-        c["model"]["dc_losses_pct"] = {"lid": total, "mismatch": 0, "wiring": 0,
-                                       "connections": 0, "nameplate_rating": 0}
+        c["model"]["dc_losses_pct"] = {
+            "lid": total,
+            "mismatch": 0,
+            "wiring": 0,
+            "connections": 0,
+            "nameplate_rating": 0,
+        }
         t = loss_waterfall(inputs, ac, t_cell, c, gamma, freq="Y")
         check_closure(t)
         rows[total] = t[["dc_losses", "downtime", "running_shortfall"]].sum()
     return pd.DataFrame(rows).T.rename_axis("dc_loss_pct")
 
 
-def availability_revised(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
-                         config: Mapping[str, Any], gamma: float | None = None,
-                         freq: str = "Y") -> pd.DataFrame:
+def availability_revised(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    gamma: float | None = None,
+    freq: str = "Y",
+) -> pd.DataFrame:
     """Availability corrected for lost data channels (Phase 2 KPI, revised after Phase 3).
 
     The time-based availability of Phase 2 counts every inverter that reports ~0 as stopped. On
@@ -238,13 +267,18 @@ def availability_revised(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Seri
     scope, scope_2d = waterfall_scope(inputs, ac, t_cell)
     s_known = ac.where(ac.notna() & scope_2d).sum(axis=1) * dt
     meter_at_ac = (inputs["p_ac_meter_kw"] * dt).where(scope, 0.0) * config["losses"]["inv_to_meter"]
-    flag = channel_loss_flag(s_known, meter_at_ac, inputs.index, config["losses"]["channel_tolerance"]) & scope
+    flag = (
+        channel_loss_flag(s_known, meter_at_ac, inputs.index, config["losses"]["channel_tolerance"]) & scope
+    )
     day = _period(inputs.index, "D")
-    channel_day_step = flag.groupby(day).transform("max")       # every step of a flagged day
+    channel_day_step = flag.groupby(day).transform("max")  # every step of a flagged day
 
-    known, down = inverter_states(ac, poa, config)              # POA > 50 W/m2, as in kpi_table
-    on_channel_day = pd.DataFrame(np.repeat(channel_day_step.to_numpy()[:, None], ac.shape[1], axis=1),
-                                  index=ac.index, columns=ac.columns)
+    known, down = inverter_states(ac, poa, config)  # POA > 50 W/m2, as in kpi_table
+    on_channel_day = pd.DataFrame(
+        np.repeat(channel_day_step.to_numpy()[:, None], ac.shape[1], axis=1),
+        index=ac.index,
+        columns=ac.columns,
+    )
     period = _period(inputs.index, freq)
     n_known = known.sum(axis=1).groupby(period).sum()
     n_down = down.sum(axis=1).groupby(period).sum()
@@ -252,13 +286,15 @@ def availability_revised(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Seri
     n_down_up = (down & ~on_channel_day).sum(axis=1).groupby(period).sum()
 
     w = loss_waterfall(inputs, ac, t_cell, config, gamma, freq=freq)
-    flag_day = flag.groupby(day).max()                           # one bool per local day
+    flag_day = flag.groupby(day).max()  # one bool per local day
     channel_days = flag_day.groupby(flag_day.index.asfreq(freq)).sum()
-    out = pd.DataFrame({
-        "availability_time_raw": 1 - n_down / n_known,
-        "availability_time_upper": 1 - n_down_up / n_known_up,
-        "availability_energy": 1 - (w["downtime"] + w["channel_credit"]) / w["expected_kwh"],
-        "channel_days": channel_days,
-    })
+    out = pd.DataFrame(
+        {
+            "availability_time_raw": 1 - n_down / n_known,
+            "availability_time_upper": 1 - n_down_up / n_known_up,
+            "availability_energy": 1 - (w["downtime"] + w["channel_credit"]) / w["expected_kwh"],
+            "channel_days": channel_days,
+        }
+    )
     out.index.name = "local_period"
     return out.loc[w.index]

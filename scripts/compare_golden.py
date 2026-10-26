@@ -53,8 +53,11 @@ def main():
 
     with tempfile.TemporaryDirectory() as tmp:
         out = Path(tmp) / "now.json"
-        subprocess.run([sys.executable, "-m", "scripts.capture_golden", "--run", args.run, "--out", str(out)],
-                       check=True, capture_output=True)
+        subprocess.run(
+            [sys.executable, "-m", "scripts.capture_golden", "--run", args.run, "--out", str(out)],
+            check=True,
+            capture_output=True,
+        )
         now = json.loads(out.read_text(encoding="utf8"))[args.run]
     was = json.loads(GOLDEN.read_text(encoding="utf8"))[args.run]
     rows, total = compare(was, now, args.rel_tol)

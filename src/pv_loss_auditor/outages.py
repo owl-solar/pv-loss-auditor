@@ -42,7 +42,7 @@ def pair_overlap(is_down, min_union=10):
     cols = list(is_down.columns)
     rows = []
     for i, a in enumerate(cols):
-        for b in cols[i + 1:]:
+        for b in cols[i + 1 :]:
             known = is_down[a].notna() & is_down[b].notna()
             da, db = (is_down[a] == 1) & known, (is_down[b] == 1) & known
             union = int((da | db).sum())
@@ -75,12 +75,16 @@ def episode_table(is_down, ratio, episodes):
         d = is_down.loc[sl]
         share = d.mean()
         r = ratio.loc[sl].dropna()
-        rows.append({
-            "start": e["start"], "end": e["end"], "days": len(d),
-            "stopped": ",".join(c[8:10] for c in share[share > 0.8].index),
-            "n_stopped": int((share > 0.8).sum()),
-            "partly": ",".join(c[8:10] for c in share[(share > 0.2) & (share <= 0.8)].index),
-            "ratio_median": r.median() if len(r) else np.nan,
-            "ratio_p5": r.quantile(0.05) if len(r) else np.nan,
-        })
+        rows.append(
+            {
+                "start": e["start"],
+                "end": e["end"],
+                "days": len(d),
+                "stopped": ",".join(c[8:10] for c in share[share > 0.8].index),
+                "n_stopped": int((share > 0.8).sum()),
+                "partly": ",".join(c[8:10] for c in share[(share > 0.2) & (share <= 0.8)].index),
+                "ratio_median": r.median() if len(r) else np.nan,
+                "ratio_p5": r.quantile(0.05) if len(r) else np.nan,
+            }
+        )
     return pd.DataFrame(rows)

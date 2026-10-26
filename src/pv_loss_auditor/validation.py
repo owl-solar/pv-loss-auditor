@@ -23,7 +23,7 @@ def require_keys(config: Mapping[str, Any], keys: Sequence[str], where: str = "c
 
 def require_positive(value: float, name: str) -> float:
     """Return `value` if it is a finite number above zero (rated power, capacity, count)."""
-    if not (value == value and value > 0):          # NaN fails both comparisons
+    if not (value == value and value > 0):  # NaN fails both comparisons
         raise ValueError(f"{name} must be positive, got {value!r}")
     return value
 
@@ -34,8 +34,9 @@ def require_nonempty(obj: pd.DataFrame | pd.Series, name: str) -> None:
         raise ValueError(f"{name} is empty: no rows in the selected period")
 
 
-def require_aligned(reference: pd.DataFrame | pd.Series, other: pd.DataFrame | pd.Series,
-                    names: tuple[str, str]) -> None:
+def require_aligned(
+    reference: pd.DataFrame | pd.Series, other: pd.DataFrame | pd.Series, names: tuple[str, str]
+) -> None:
     """The two objects must share one time index, otherwise sums would mix different steps."""
     if not reference.index.equals(other.index):
         raise ValueError(f"{names[0]} and {names[1]} have different time indices")
@@ -56,8 +57,9 @@ def check_poa(poa: pd.Series, config: Mapping[str, Any]) -> None:
     limit = config["validation"]["poa_min_wm2"]
     lowest = poa.min()
     if pd.notna(lowest) and lowest < limit:
-        raise ValueError(f"POA irradiance has negative values: minimum {lowest:.1f} W/m2 "
-                         f"(allowed down to {limit} W/m2)")
+        raise ValueError(
+            f"POA irradiance has negative values: minimum {lowest:.1f} W/m2 (allowed down to {limit} W/m2)"
+        )
 
 
 def warn_suspicious(inputs: pd.DataFrame, config: Mapping[str, Any]) -> None:
@@ -77,8 +79,12 @@ def warn_suspicious(inputs: pd.DataFrame, config: Mapping[str, Any]) -> None:
     for column in ("poa_wm2", "t_mod_c", "p_ac_meter_kw"):
         values = inputs.loc[day, column].dropna()
         if len(values) > 1 and values.nunique() == 1:
-            log.warning("flat sensor: %s has the single value %s on all %d valid daylight steps",
-                        column, values.iloc[0], len(values))
+            log.warning(
+                "flat sensor: %s has the single value %s on all %d valid daylight steps",
+                column,
+                values.iloc[0],
+                len(values),
+            )
     if day.any():
         missing = inputs.loc[day, "poa_wm2"].isna().mean()
         if missing > v["max_missing_share"]:

@@ -20,10 +20,10 @@ def _blocked_days(index, inverters, config):
     s = config["anomalies"]["synthetic"]
     blocked = pd.DataFrame(False, index=index, columns=inverters)
     for e in s["exclude_plant"]:
-        blocked.loc[e["start"]:e["end"], :] = True
+        blocked.loc[e["start"] : e["end"], :] = True
     for e in s["exclude_inverter"]:
         if e["inverter"] in blocked:
-            blocked.loc[e["start"]:e["end"], e["inverter"]] = True
+            blocked.loc[e["start"] : e["end"], e["inverter"]] = True
     return blocked
 
 
@@ -53,12 +53,12 @@ def plan_faults(valid_days, config):
     """
     s = config["anomalies"]["synthetic"]
     rng = np.random.default_rng(s["seed"])
-    taken = {c: [] for c in valid_days.columns}        # accepted (first, last) row per inverter
+    taken = {c: [] for c in valid_days.columns}  # accepted (first, last) row per inverter
     rows = []
     for w in s["durations_days"]:
         ok = eligible_starts(valid_days, config, w)
         dates, cols = ok.index, list(ok.columns)
-        cand = np.argwhere(ok.to_numpy())              # (row, col) of every eligible start
+        cand = np.argwhere(ok.to_numpy())  # (row, col) of every eligible start
         for k in s["levels_strings"]:
             n_done = 0
             for i in rng.permutation(len(cand)):
@@ -67,9 +67,17 @@ def plan_faults(valid_days, config):
                 if any(r <= last + 1 and r + w - 1 >= first - 1 for first, last in taken[name]):
                     continue
                 taken[name].append((r, r + w - 1))
-                rows.append({"inverter": name, "start": dates[r], "end": dates[r + w - 1],
-                             "duration_days": w, "strings": k,
-                             "loss_fraction": k / s["strings_per_inverter"], "is_synthetic": True})
+                rows.append(
+                    {
+                        "inverter": name,
+                        "start": dates[r],
+                        "end": dates[r + w - 1],
+                        "duration_days": w,
+                        "strings": k,
+                        "loss_fraction": k / s["strings_per_inverter"],
+                        "is_synthetic": True,
+                    }
+                )
                 n_done += 1
                 if n_done == s["events_per_level"]:
                     break

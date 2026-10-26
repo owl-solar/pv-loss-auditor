@@ -33,7 +33,7 @@ def test_full_pipeline_on_the_fixture_reproduces_the_golden_values(fixture_confi
 
 def test_fixture_waterfall_closes_and_the_stop_of_december_12_to_18_is_found(fixture_config):
     now, _ = pipeline_section(fixture_config)
-    assert now["waterfall_max_closure_kwh"] < 1e-6              # nominal = sum of steps + metered
+    assert now["waterfall_max_closure_kwh"] < 1e-6  # nominal = sum of steps + metered
     # 26 inverters were down 12-18 December: hundreds of inverter-days in a 14-day window
     assert now["down_inverter_days"] > 150
     assert now["kpi_yearly"]["columns"]["availability"][0] < 0.8
@@ -41,9 +41,18 @@ def test_fixture_waterfall_closes_and_the_stop_of_december_12_to_18_is_found(fix
 
 # --- an injected SYNTHETIC fault on real data -------------------------------------------------
 
-FAULT = pd.DataFrame([{"inverter": "p_ac_inv05_kw", "start": pd.Timestamp("2020-12-09"),
-                       "end": pd.Timestamp("2020-12-11"), "strings": 40, "loss_fraction": 40 / 170,
-                       "is_synthetic": True}])           # SYNTHETIC: 40 of 170 strings = -23.5 %
+FAULT = pd.DataFrame(
+    [
+        {
+            "inverter": "p_ac_inv05_kw",
+            "start": pd.Timestamp("2020-12-09"),
+            "end": pd.Timestamp("2020-12-11"),
+            "strings": 40,
+            "loss_fraction": 40 / 170,
+            "is_synthetic": True,
+        }
+    ]
+)  # SYNTHETIC: 40 of 170 strings = -23.5 %
 
 
 def daily_rel_median(config, ac_override=None):
@@ -72,10 +81,13 @@ def test_detectors_find_the_injected_fault_on_the_fixture(fixture_config):
     faulty = daily_rel_median(fixture_config, ac_override=True).dropna()
     x_real = pd.DataFrame({"dev_rel_median": real - 1.0})
     x = pd.DataFrame({"dev_rel_median": faulty - 1.0})
-    sigma = an.robust_sigma(x_real["dev_rel_median"])             # sigma of the clean data (as in the project)
+    sigma = an.robust_sigma(x_real["dev_rel_median"])  # sigma of the clean data (as in the project)
     score = an.rule_score(x, sigma)
-    is_fault = (x.index.get_level_values("inverter") == "p_ac_inv05_kw") & \
-               (x.index.get_level_values("date") >= "2020-12-09") & (x.index.get_level_values("date") <= "2020-12-11")
+    is_fault = (
+        (x.index.get_level_values("inverter") == "p_ac_inv05_kw")
+        & (x.index.get_level_values("date") >= "2020-12-09")
+        & (x.index.get_level_values("date") <= "2020-12-11")
+    )
     assert is_fault.sum() == 3
     assert (score[is_fault] > 5).all()
     assert (score[~is_fault] > 5).sum() == 0

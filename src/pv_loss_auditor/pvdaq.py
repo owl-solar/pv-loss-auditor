@@ -34,7 +34,13 @@ PREFIX = "pvdaq/"
 # Latest dated version of the summary table at the time of writing.
 SYSTEMS_CSV_KEY = "pvdaq/csv/systems_20250729.csv"
 PARQUET_META_TABLES = [
-    "site", "system", "mount", "inverters", "modules", "meters", "other-instruments",
+    "site",
+    "system",
+    "mount",
+    "inverters",
+    "modules",
+    "meters",
+    "other-instruments",
 ]
 DATA_PRIZE_PREFIX = "pvdaq/2023-solar-data-prize/"
 
@@ -139,7 +145,7 @@ def find_offset(s3, key, data_start, size, ts):
         mid = (lo + hi) // 2
         chunk = _get_range(s3, key, mid, min(mid + PROBE_BYTES, size))
         nl = chunk.find(b"\n")
-        row_ts = chunk[nl + 1:nl + 1 + TS_LEN].decode() if nl != -1 else ""
+        row_ts = chunk[nl + 1 : nl + 1 + TS_LEN].decode() if nl != -1 else ""
         if len(row_ts) < TS_LEN and mid + len(chunk) < size:
             raise RuntimeError(f"Row longer than PROBE_BYTES in {key}; increase PROBE_BYTES.")
         if len(row_ts) < TS_LEN or row_ts >= ts:
@@ -152,7 +158,7 @@ def find_offset(s3, key, data_start, size, ts):
     # lo is a row start only if it is still data_start; otherwise skip the partial row at lo.
     pos = 0 if lo == data_start else chunk.find(b"\n") + 1
     while pos < len(chunk):
-        if chunk[pos:pos + TS_LEN].decode() >= ts:
+        if chunk[pos : pos + TS_LEN].decode() >= ts:
             return lo + pos
         nl = chunk.find(b"\n", pos)
         if nl == -1:
@@ -188,10 +194,20 @@ def plan_sample(s3, config):
             ts_start, ts_end = _month_bounds(month)
             start = find_offset(s3, spec["key"], header["data_start"], header["size"], ts_start)
             end = find_offset(s3, spec["key"], header["data_start"], header["size"], ts_end)
-            parts.append({"name": name, "month": month, "key": spec["key"], "start": start,
-                          "end": end, "ts_start": ts_start, "ts_end": ts_end,
-                          "columns": header["columns"], "channels": spec["channels"],
-                          "out_path": out_path})
+            parts.append(
+                {
+                    "name": name,
+                    "month": month,
+                    "key": spec["key"],
+                    "start": start,
+                    "end": end,
+                    "ts_start": ts_start,
+                    "ts_end": ts_end,
+                    "columns": header["columns"],
+                    "channels": spec["channels"],
+                    "out_path": out_path,
+                }
+            )
     return parts
 
 
@@ -226,14 +242,15 @@ def download_sample(config, dry_run=False, assume_yes=False):
     total_mb = sum(p["end"] - p["start"] for p in parts) / 1e6
     for p in parts:
         log.info(f"{p['name']:14s} {p['month']}  {(p['end'] - p['start']) / 1e6:7.1f} MB")
-    log.info(f"To download: {total_mb:.1f} MB "
-          f"(probes and headers so far: {bytes_transferred / 1e6:.2f} MB)")
+    log.info(f"To download: {total_mb:.1f} MB (probes and headers so far: {bytes_transferred / 1e6:.2f} MB)")
 
     if dry_run or not parts:
         return []
     if total_mb > data["max_download_mb"]:
-        raise SystemExit(f"{total_mb:.1f} MB exceeds max_download_mb={data['max_download_mb']}. "
-                         "Raise the limit in the config only after explicit approval.")
+        raise SystemExit(
+            f"{total_mb:.1f} MB exceeds max_download_mb={data['max_download_mb']}. "
+            "Raise the limit in the config only after explicit approval."
+        )
     if not assume_yes and input("Proceed? [y/N] ").strip().lower() != "y":
         raise SystemExit("Cancelled.")
 
@@ -249,8 +266,10 @@ def download_sample(config, dry_run=False, assume_yes=False):
         p["out_path"].parent.mkdir(parents=True, exist_ok=True)
         df.to_parquet(p["out_path"])
         saved.append(p["out_path"])
-        log.info(f"saved {p['out_path']}  rows={len(df)}  "
-              f"{df.index.min()} .. {df.index.max()}  duplicates={df.index.duplicated().sum()}")
+        log.info(
+            f"saved {p['out_path']}  rows={len(df)}  "
+            f"{df.index.min()} .. {df.index.max()}  duplicates={df.index.duplicated().sum()}"
+        )
     log.info(f"Total transferred this run: {bytes_transferred / 1e6:.1f} MB")
     return saved
 
@@ -325,8 +344,10 @@ def _get_range_retry(s3, key, start, end, retries):
             if attempt == retries:
                 raise
             wait = 2 ** (attempt + 1)
-            log.info(f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} "
-                  f"in {wait} s", flush=True)
+            log.info(
+                f"  network error ({type(exc).__name__}), retry {attempt + 1}/{retries} in {wait} s",
+                flush=True,
+            )
             time.sleep(wait)
 
 
@@ -370,25 +391,43 @@ def plan_period(s3, config, files=None):
         header = _cached_header(s3, key, data["header_cache"])
         size_now = s3.head_object(Bucket=BUCKET, Key=key)["ContentLength"]
         if size_now != header["size"]:
-            raise RuntimeError(f"{key}: size on S3 ({size_now}) differs from cached header "
-                               f"({header['size']}); delete {data['header_cache']} and check.")
+            raise RuntimeError(
+                f"{key}: size on S3 ({size_now}) differs from cached header "
+                f"({header['size']}); delete {data['header_cache']} and check."
+            )
         mapping = resolve_channels(header["columns"], period["rules"][name])
         entry = manifest["files"].get(name)
         if entry is None:
             before = bytes_transferred
             start_offset = find_offset(s3, key, header["data_start"], size_now, start_ts)
-            entry = {"key": key, "size": size_now, "start_month": period["start"],
-                     "start_offset": start_offset, "plan_bytes": bytes_transferred - before,
-                     "traffic_bytes": 0, "channels": mapping, "months": []}
+            entry = {
+                "key": key,
+                "size": size_now,
+                "start_month": period["start"],
+                "start_offset": start_offset,
+                "plan_bytes": bytes_transferred - before,
+                "traffic_bytes": 0,
+                "channels": mapping,
+                "months": [],
+            }
             manifest["files"][name] = entry
-        elif (entry["size"], entry["channels"], entry["start_month"]) != \
-                (size_now, mapping, period["start"]):
-            raise SystemExit(f"{name}: file size, channels or start month differ from the "
-                             f"manifest. Delete {Path(period['out_dir']) / name} and its entry "
-                             "in the manifest to start this file over.")
+        elif (entry["size"], entry["channels"], entry["start_month"]) != (size_now, mapping, period["start"]):
+            raise SystemExit(
+                f"{name}: file size, channels or start month differ from the "
+                f"manifest. Delete {Path(period['out_dir']) / name} and its entry "
+                "in the manifest to start this file over."
+            )
         resume = entry["months"][-1]["end"] if entry["months"] else entry["start_offset"]
-        plans.append({"name": name, "entry": entry, "header": header, "mapping": mapping,
-                      "size": size_now, "resume": resume})
+        plans.append(
+            {
+                "name": name,
+                "entry": entry,
+                "header": header,
+                "mapping": mapping,
+                "size": size_now,
+                "resume": resume,
+            }
+        )
     _write_json_atomic(_manifest_path(period), manifest)
     return plans, manifest
 
@@ -405,8 +444,7 @@ class _MonthSaver:
         self.traffic_mark = bytes_transferred  # traffic already counted for this file
 
     def save(self, month, lines, start, end, at_eof):
-        df = _parse_rows(b"".join(lines), self.plan["header"]["columns"],
-                         self.plan["mapping"], self.ts_col)
+        df = _parse_rows(b"".join(lines), self.plan["header"]["columns"], self.plan["mapping"], self.ts_col)
         # Sanity checks: sorted rows, all inside the month (stop instead of saving bad data).
         if not df.index.is_monotonic_increasing:
             raise RuntimeError(f"{self.name} {month}: timestamps not sorted.")
@@ -421,10 +459,18 @@ class _MonthSaver:
 
         self.entry["traffic_bytes"] += bytes_transferred - self.traffic_mark
         self.traffic_mark = bytes_transferred
-        self.entry["months"].append({
-            "month": month, "start": start, "end": end, "rows": len(df),
-            "first_ts": str(df.index.min()), "last_ts": str(df.index.max()),
-            "duplicates": int(df.index.duplicated().sum()), "at_eof": at_eof})
+        self.entry["months"].append(
+            {
+                "month": month,
+                "start": start,
+                "end": end,
+                "rows": len(df),
+                "first_ts": str(df.index.min()),
+                "last_ts": str(df.index.max()),
+                "duplicates": int(df.index.duplicated().sum()),
+                "at_eof": at_eof,
+            }
+        )
         _write_json_atomic(self.manifest_path, self.manifest)
         self._print_progress(month, end - start, end)
 
@@ -435,11 +481,14 @@ class _MonthSaver:
         file_done = end - self.entry["start_offset"]
         speed = (bytes_transferred - p["traffic0"]) / max(time.time() - p["t0"], 1e-9)
         eta_min = (p["total"] - p["done"]) / max(speed, 1) / 60
-        log.info(f"{self.label} {self.name:13s} {month}  {month_bytes / 1e6:6.1f} MB | "
-              f"file {file_done / 1e6:6.1f}/{file_total / 1e6:.1f} MB "
-              f"({100 * file_done / file_total:3.0f}%) | "
-              f"total {p['done'] / 1e6:7.1f}/{p['total'] / 1e6:.1f} MB | "
-              f"{speed / 1e6:.2f} MB/s | ETA {eta_min:.0f} min", flush=True)
+        log.info(
+            f"{self.label} {self.name:13s} {month}  {month_bytes / 1e6:6.1f} MB | "
+            f"file {file_done / 1e6:6.1f}/{file_total / 1e6:.1f} MB "
+            f"({100 * file_done / file_total:3.0f}%) | "
+            f"total {p['done'] / 1e6:7.1f}/{p['total'] / 1e6:.1f} MB | "
+            f"{speed / 1e6:.2f} MB/s | ETA {eta_min:.0f} min",
+            flush=True,
+        )
 
 
 def _download_file(s3, plan, label, config, manifest, progress):
@@ -450,8 +499,9 @@ def _download_file(s3, plan, label, config, manifest, progress):
     key = plan["entry"]["key"]
     cur_month, month_start, lines = None, None, []
     offset = plan["resume"]  # file offset of the row being looked at
-    for block_offset, block in _read_chunks(s3, key, plan["resume"], plan["size"],
-                                            chunk_bytes, period["retries"]):
+    for block_offset, block in _read_chunks(
+        s3, key, plan["resume"], plan["size"], chunk_bytes, period["retries"]
+    ):
         offset = block_offset
         for line in block.splitlines(keepends=True):
             if line.strip():  # skip blank lines
@@ -487,14 +537,20 @@ def period_report(config):
         expected = (pd.Timestamp(last) - pd.Timestamp(first)) / pd.Timedelta(minutes=5) + 1
         have = pd.PeriodIndex([m["month"] for m in months], freq="M")
         missing = pd.period_range(have.min(), have.max(), freq="M").difference(have)
-        rows.append({
-            "file": name, "months": len(months), "rows": n_rows,
-            "rows_pct_of_5min": round(100 * n_rows / expected, 1),
-            "duplicates": sum(m["duplicates"] for m in months),
-            "payload_mb": round(sum(m["end"] - m["start"] for m in months) / 1e6, 1),
-            "traffic_mb": round((entry["plan_bytes"] + entry["traffic_bytes"]) / 1e6, 1),
-            "first_ts": first, "last_ts": last,
-            "missing_months": ",".join(str(p) for p in missing)})
+        rows.append(
+            {
+                "file": name,
+                "months": len(months),
+                "rows": n_rows,
+                "rows_pct_of_5min": round(100 * n_rows / expected, 1),
+                "duplicates": sum(m["duplicates"] for m in months),
+                "payload_mb": round(sum(m["end"] - m["start"] for m in months) / 1e6, 1),
+                "traffic_mb": round((entry["plan_bytes"] + entry["traffic_bytes"]) / 1e6, 1),
+                "first_ts": first,
+                "last_ts": last,
+                "missing_months": ",".join(str(p) for p in missing),
+            }
+        )
     return pd.DataFrame(rows)
 
 
@@ -514,24 +570,30 @@ def download_period(config, files=None, dry_run=False):
     for p in plans:
         full = p["size"] - p["entry"]["start_offset"]
         left = p["size"] - p["resume"]
-        log.info(f"{p['name']:14s} {full / 1e6:10.1f} {(full - left) / 1e6:9.1f} {left / 1e6:15.1f}  "
-              f"{len(p['entry']['months'])}")
-    log.info(f"To download: {todo / 1e6:.1f} MB (approved: {period['approved_mb']} MB; "
-          f"headers and search so far: {bytes_transferred / 1e6:.2f} MB)")
+        log.info(
+            f"{p['name']:14s} {full / 1e6:10.1f} {(full - left) / 1e6:9.1f} {left / 1e6:15.1f}  "
+            f"{len(p['entry']['months'])}"
+        )
+    log.info(
+        f"To download: {todo / 1e6:.1f} MB (approved: {period['approved_mb']} MB; "
+        f"headers and search so far: {bytes_transferred / 1e6:.2f} MB)"
+    )
     if todo / 1e6 > period["approved_mb"]:
         raise SystemExit("Exceeds period.approved_mb. Ask for approval before raising it.")
     if dry_run or todo == 0:
         return
 
-    progress = {"total": total, "done": total - todo, "t0": time.time(),
-                "traffic0": bytes_transferred}
+    progress = {"total": total, "done": total - todo, "t0": time.time(), "traffic0": bytes_transferred}
     try:
         for i, plan in enumerate(plans, 1):
             if plan["resume"] < plan["size"]:
                 _download_file(s3, plan, f"[{i}/{len(plans)}]", config, manifest, progress)
     except BaseException:
-        log.warning("Interrupted. Run the same command again: it continues after the last saved "
-              "month, saved months are not downloaded again.", flush=True)
+        log.warning(
+            "Interrupted. Run the same command again: it continues after the last saved "
+            "month, saved months are not downloaded again.",
+            flush=True,
+        )
         raise
 
     report = period_report(config)
@@ -545,14 +607,17 @@ def main():
     setup_logging()
     parser = argparse.ArgumentParser(description="Download configured PVDAQ data.")
     parser.add_argument("--config", required=True, help="e.g. configs/system_9069.yaml")
-    parser.add_argument("--period", action="store_true",
-                        help="download the whole analysis period, resumable, month by month "
-                             "(default: the small sample of data.sample_months)")
+    parser.add_argument(
+        "--period",
+        action="store_true",
+        help="download the whole analysis period, resumable, month by month "
+        "(default: the small sample of data.sample_months)",
+    )
     parser.add_argument("--files", nargs="+", help="with --period: only these files")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="only print the size (reads headers and binary-search probes)")
-    parser.add_argument("--yes", action="store_true",
-                        help="sample mode: do not ask for confirmation")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="only print the size (reads headers and binary-search probes)"
+    )
+    parser.add_argument("--yes", action="store_true", help="sample mode: do not ask for confirmation")
     args = parser.parse_args()
     config = load_config(args.config)
     if args.period:

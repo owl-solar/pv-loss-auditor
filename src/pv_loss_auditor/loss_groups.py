@@ -6,8 +6,18 @@ cleaning code and the data loaders. src.losses re-exports these names.
 
 import pandas as pd
 
-STEPS = ["temperature", "dc_losses", "inverter", "clipping", "downtime", "unknown_ac",
-         "channel_credit", "running_shortfall", "reconciliation", "after_inverters"]
+STEPS = [
+    "temperature",
+    "dc_losses",
+    "inverter",
+    "clipping",
+    "downtime",
+    "unknown_ac",
+    "channel_credit",
+    "running_shortfall",
+    "reconciliation",
+    "after_inverters",
+]
 
 
 # Presentation groups: columns of the waterfall table -> cause shown to a reader.

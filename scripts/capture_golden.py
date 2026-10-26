@@ -75,7 +75,9 @@ def pipeline_section(config):
     # Value of the audit losses (downtime net of channel loss + running shortfall) at the base price.
     price = prices.price_usd_per_mwh(config)[0] if Path(config["price"]["file"]).exists() else None
     if price is not None:
-        lost_kwh = monthly["downtime"].sum() + monthly["channel_credit"].sum() + monthly["running_shortfall"].sum()
+        lost_kwh = (
+            monthly["downtime"].sum() + monthly["channel_credit"].sum() + monthly["running_shortfall"].sum()
+        )
         out["price_usd_per_mwh"] = float(price)
         out["audit_loss_kwh"] = float(lost_kwh)
         out["audit_loss_usd"] = float(lost_kwh * price / 1000)
@@ -88,20 +90,37 @@ def full_extra(config, parts):
     out = {}
     deg = ex.degradation_tables(inputs, ac, t_cell, config)
     daily = deg["daily_series"]
-    out["daily_series_summary"] = {c: {"n": int(daily[c].notna().sum()), "sum": float(daily[c].sum()),
-                                       "mean": float(daily[c].mean())}
-                                   for c in daily.columns if pd.api.types.is_numeric_dtype(daily[c])}
-    for name in ("degradation_yoy", "degradation_filters", "soiling", "external_poa_stats",
-                 "pr_by_poa_source", "aoi_by_b0", "shortfall_split"):
+    out["daily_series_summary"] = {
+        c: {"n": int(daily[c].notna().sum()), "sum": float(daily[c].sum()), "mean": float(daily[c].mean())}
+        for c in daily.columns
+        if pd.api.types.is_numeric_dtype(daily[c])
+    }
+    for name in (
+        "degradation_yoy",
+        "degradation_filters",
+        "soiling",
+        "external_poa_stats",
+        "pr_by_poa_source",
+        "aoi_by_b0",
+        "shortfall_split",
+    ):
         out[name] = dump(deg[name])
 
     an = ex.anomaly_tables(inputs, ac, t_cell, config)
-    for name in ("anomaly_summary", "anomaly_real_events", "anomaly_excluded_flag_share", "anomaly_noise",
-                 "anomaly_by_cell"):
+    for name in (
+        "anomaly_summary",
+        "anomaly_real_events",
+        "anomaly_excluded_flag_share",
+        "anomaly_noise",
+        "anomaly_by_cell",
+    ):
         out[name] = dump(an[name])
     ev = an["anomaly_events"]
-    out["anomaly_events"] = {"n": len(ev), "by_set": {k: int(v) for k, v in ev["set"].value_counts().items()},
-                             "start_sum_days": int((ev["start"] - ev["start"].min()).dt.days.sum())}
+    out["anomaly_events"] = {
+        "n": len(ev),
+        "by_set": {k: int(v) for k, v in ev["set"].value_counts().items()},
+        "start_sum_days": int((ev["start"] - ev["start"].min()).dt.days.sum()),
+    }
     out["outage_episodes"] = dump(ex.outage_tables(inputs, ac, config)["outage_episodes"])
     return out
 

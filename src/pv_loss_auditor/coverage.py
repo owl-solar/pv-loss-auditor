@@ -44,7 +44,7 @@ def _read_row(s3, key, offset, read_bytes, size):
         nl = chunk.find(b"\n")
         end = chunk.find(b"\n", nl + 1) if nl != -1 else -1
         if end != -1:
-            return chunk[nl + 1:end].rstrip(b"\r").decode()
+            return chunk[nl + 1 : end].rstrip(b"\r").decode()
         if offset + n >= size:
             return None
         n *= 2
@@ -75,11 +75,21 @@ def plan_points(s3, config):
         # A fixed step would alias with the daily cycle: in the meter file one step was ~25 h,
         # so consecutive points fell at almost the same time of day (mostly night for weeks).
         rng = np.random.default_rng(cov["random_seed"])
-        offsets = [header["data_start"] + int((i + u) * span / n_points)
-                   for i, u in enumerate(rng.random(n_points))]
-        plan.append({"name": name, "key": spec["key"], "header": header, "read_bytes": read_bytes,
-                     "first_ts": first_ts, "last_ts": last_ts, "n_months": n_months,
-                     "offsets": offsets})
+        offsets = [
+            header["data_start"] + int((i + u) * span / n_points) for i, u in enumerate(rng.random(n_points))
+        ]
+        plan.append(
+            {
+                "name": name,
+                "key": spec["key"],
+                "header": header,
+                "read_bytes": read_bytes,
+                "first_ts": first_ts,
+                "last_ts": last_ts,
+                "n_months": n_months,
+                "offsets": offsets,
+            }
+        )
     return plan
 
 
@@ -88,11 +98,17 @@ def estimate(plan, gap_probes_reserve=200):
     rows = []
     for p in plan:
         n = len(p["offsets"])
-        rows.append({"file": p["name"], "period": f"{p['first_ts'][:10]} .. {p['last_ts'][:10]}",
-                     "months": p["n_months"], "points": n,
-                     "data_mb": n * p["read_bytes"] / 1e6,
-                     "overhead_mb": n * REQUEST_OVERHEAD_BYTES / 1e6,
-                     "gap_search_mb": gap_probes_reserve * p["read_bytes"] / 1e6})
+        rows.append(
+            {
+                "file": p["name"],
+                "period": f"{p['first_ts'][:10]} .. {p['last_ts'][:10]}",
+                "months": p["n_months"],
+                "points": n,
+                "data_mb": n * p["read_bytes"] / 1e6,
+                "overhead_mb": n * REQUEST_OVERHEAD_BYTES / 1e6,
+                "gap_search_mb": gap_probes_reserve * p["read_bytes"] / 1e6,
+            }
+        )
     table = pd.DataFrame(rows)
     table["total_mb"] = table[["data_mb", "overhead_mb", "gap_search_mb"]].sum(axis=1)
     return table
@@ -102,8 +118,13 @@ def _parse_rows(rows, offsets, columns, patterns):
     """Rows (CSV strings) -> DataFrame: timestamp, row length, byte offset, selected channels."""
     keep = [c for c in columns if any(re.search(pt, c) for pt in patterns)]
     split = pd.Series(rows).str.split(",")
-    df = pd.DataFrame({"measured_on": pd.to_datetime(split.str[0], format="%Y-%m-%d %H:%M:%S"),
-                       "offset": offsets, "row_bytes": pd.Series(rows).str.len() + 1})
+    df = pd.DataFrame(
+        {
+            "measured_on": pd.to_datetime(split.str[0], format="%Y-%m-%d %H:%M:%S"),
+            "offset": offsets,
+            "row_bytes": pd.Series(rows).str.len() + 1,
+        }
+    )
     for c in keep:
         # Empty field -> NaN. errors="coerce" also turns any non-numeric text into NaN.
         df[c] = pd.to_numeric(split.str[columns.index(c)], errors="coerce")
@@ -146,11 +167,16 @@ def find_gaps(s3, p, samples, min_gap_days):
         expected_rows = (b["offset"] - a["offset"]) / ((a["row_bytes"] + b["row_bytes"]) / 2)
         expected_dt = pd.Timedelta(minutes=5) * expected_rows
         if dt > pd.Timedelta(days=min_gap_days) and dt > 4 * expected_dt:
-            start, end = _refine_gap(s3, p, a["offset"], a["measured_on"],
-                                     b["offset"], b["measured_on"])
+            start, end = _refine_gap(s3, p, a["offset"], a["measured_on"], b["offset"], b["measured_on"])
             if end - start > pd.Timedelta(days=min_gap_days):
-                gaps.append({"file": p["name"], "last_before": start, "first_after": end,
-                             "days": round((end - start) / pd.Timedelta(days=1), 1)})
+                gaps.append(
+                    {
+                        "file": p["name"],
+                        "last_before": start,
+                        "first_after": end,
+                        "days": round((end - start) / pd.Timedelta(days=1), 1),
+                    }
+                )
     return gaps
 
 
@@ -159,13 +185,14 @@ def build_coverage(config, dry_run=False, assume_yes=False):
     cov = config["coverage"]
     out_dir = Path(cov["out_dir"])
     s3 = pvdaq.get_s3_client()
-    todo = [p for p in plan_points(s3, config)
-            if not (out_dir / f"{p['name']}_samples.parquet").exists()]
+    todo = [p for p in plan_points(s3, config) if not (out_dir / f"{p['name']}_samples.parquet").exists()]
     table = estimate(todo)
     log.info(table.round(2).to_string(index=False))
     total_mb = table["total_mb"].sum() if len(table) else 0.0
-    log.info(f"Estimated total: {total_mb:.1f} MB "
-          f"(spent on headers/first-last rows so far: {pvdaq.bytes_transferred / 1e6:.2f} MB)")
+    log.info(
+        f"Estimated total: {total_mb:.1f} MB "
+        f"(spent on headers/first-last rows so far: {pvdaq.bytes_transferred / 1e6:.2f} MB)"
+    )
     if dry_run or not todo:
         return
     if total_mb > config["data"]["max_download_mb"]:
@@ -180,22 +207,25 @@ def build_coverage(config, dry_run=False, assume_yes=False):
             # The lambda runs inside this iteration (list() consumes the map before the loop moves on).
             rows = list(ex.map(lambda off: _read_row(s3, p["key"], off, rb, size), p["offsets"]))  # noqa: B023
         ok = [(r, o) for r, o in zip(rows, p["offsets"]) if r]
-        samples = _parse_rows([r for r, _ in ok], [o for _, o in ok], p["header"]["columns"],
-                              cov["channel_patterns"][p["name"]])
+        samples = _parse_rows(
+            [r for r, _ in ok], [o for _, o in ok], p["header"]["columns"], cov["channel_patterns"][p["name"]]
+        )
         gaps = find_gaps(s3, p, samples, cov["min_gap_days"])
         samples.to_parquet(out_dir / f"{p['name']}_samples.parquet")
         (out_dir / f"{p['name']}_gaps.json").write_text(json.dumps(gaps, default=str, indent=1))
-        log.info(f"{p['name']}: {len(samples)} snapshots, {len(gaps)} gaps > {cov['min_gap_days']} d, "
-              f"traffic so far {pvdaq.bytes_transferred / 1e6:.1f} MB")
+        log.info(
+            f"{p['name']}: {len(samples)} snapshots, {len(gaps)} gaps > {cov['min_gap_days']} d, "
+            f"traffic so far {pvdaq.bytes_transferred / 1e6:.1f} MB"
+        )
 
 
 def load_coverage(config):
     """Read cached snapshots (all files) and gaps. No network access."""
     out_dir = Path(config["coverage"]["out_dir"])
-    samples = {p.stem.replace("_samples", ""): pd.read_parquet(p)
-               for p in sorted(out_dir.glob("*_samples.parquet"))}
-    gaps = pd.DataFrame([g for p in sorted(out_dir.glob("*_gaps.json"))
-                         for g in json.loads(p.read_text())])
+    samples = {
+        p.stem.replace("_samples", ""): pd.read_parquet(p) for p in sorted(out_dir.glob("*_samples.parquet"))
+    }
+    gaps = pd.DataFrame([g for p in sorted(out_dir.glob("*_gaps.json")) for g in json.loads(p.read_text())])
     return samples, gaps
 
 
@@ -208,12 +238,12 @@ def availability_table(samples, config):
     cov, site = config["coverage"], config["system"]
     parts, counts = [], {}
     for name, df in samples.items():
-        local = df["measured_on"].dt.tz_localize(cov["local_tz_assumed"],
-                                                 ambiguous="NaT", nonexistent="NaT")
+        local = df["measured_on"].dt.tz_localize(cov["local_tz_assumed"], ambiguous="NaT", nonexistent="NaT")
         df = df[local.notna()]
         local = local[local.notna()]
-        elev = pvlib.solarposition.get_solarposition(pd.DatetimeIndex(local), site["latitude"],
-                                                     site["longitude"])["apparent_elevation"]
+        elev = pvlib.solarposition.get_solarposition(
+            pd.DatetimeIndex(local), site["latitude"], site["longitude"]
+        )["apparent_elevation"]
         day = df[elev.to_numpy() > cov["min_sun_elevation_deg"]]
         month = day["measured_on"].dt.to_period("M")
         channels = [c for c in day.columns if c not in ("measured_on", "offset", "row_bytes")]
@@ -227,10 +257,17 @@ def availability_table(samples, config):
 def short_label(col):
     """Readable channel label for plots, e.g. 'reference_cell_05_poa_irradiance_...' -> 'ref_05_poa'."""
     s = re.sub(r"_(o|inv|meter)_\d+$", "", col)
-    for old, new in [("pyranometer_(class_a)_", "pyr_"), ("reference_cell_", "ref_"),
-                     ("_poa_irradiance_(w/m2)", "_poa"), ("_ghi_irradiance_(w/m2)", "_ghi"),
-                     ("thermocouple_", "tc_"), ("_back-of-module_temperature_(sensor_", "_s"),
-                     (")_(c)", ""), ("inverter_", "inv_"), ("_ac_power_(kw)", "_p_ac")]:
+    for old, new in [
+        ("pyranometer_(class_a)_", "pyr_"),
+        ("reference_cell_", "ref_"),
+        ("_poa_irradiance_(w/m2)", "_poa"),
+        ("_ghi_irradiance_(w/m2)", "_ghi"),
+        ("thermocouple_", "tc_"),
+        ("_back-of-module_temperature_(sensor_", "_s"),
+        (")_(c)", ""),
+        ("inverter_", "inv_"),
+        ("_ac_power_(kw)", "_p_ac"),
+    ]:
         s = s.replace(old, new)
     return s
 

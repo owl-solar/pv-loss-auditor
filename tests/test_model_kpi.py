@@ -31,8 +31,8 @@ def test_expected_power_clips_at_rating_and_is_zero_at_night():
     poa = pd.Series([0.0, 200.0, 1000.0])
     t_cell = pd.Series([20.0, 30.0, 25.0])
     out = model.expected_power(poa, t_cell, CONFIG)
-    assert out["p_ac_kw"].iloc[0] == 0.0                         # night: no negative tare loss
-    assert out["p_ac_kw"].iloc[2] == pytest.approx(825.0)        # 906 kW DC > rating: clipped
+    assert out["p_ac_kw"].iloc[0] == 0.0  # night: no negative tare loss
+    assert out["p_ac_kw"].iloc[2] == pytest.approx(825.0)  # 906 kW DC > rating: clipped
     # 200 W/m2: AC below DC (inverter loss) but within 10 % of it.
     low = out.iloc[1]
     assert 0.9 * low["p_dc_kw"] < low["p_ac_kw"] < low["p_dc_kw"]
@@ -49,7 +49,7 @@ def test_expected_power_falls_with_temperature():
 def test_cell_temperature_adds_delta_t_at_full_sun():
     inputs = pd.DataFrame({"t_mod_c": [40.0, 40.0], "poa_wm2": [1000.0, 0.0]})
     t_cell = model.cell_temperature(inputs, CONFIG)
-    assert t_cell.tolist() == pytest.approx([43.0, 40.0])        # +3 C x G/1000
+    assert t_cell.tolist() == pytest.approx([43.0, 40.0])  # +3 C x G/1000
 
 
 def test_reference_power_with_and_without_temperature_factor():
@@ -63,7 +63,7 @@ def test_reference_power_with_and_without_temperature_factor():
 def test_weighted_t_ref_weights_by_poa():
     t_cell = pd.Series([20.0, 40.0, 99.0])
     poa = pd.Series([100.0, 300.0, 500.0])
-    mask = pd.Series([True, True, False])                         # third step excluded
+    mask = pd.Series([True, True, False])  # third step excluded
     # (20 x 100 + 40 x 300) / 400 = 35
     assert kpi.weighted_t_ref(t_cell, poa, mask) == pytest.approx(35.0)
 

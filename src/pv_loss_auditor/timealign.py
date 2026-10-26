@@ -75,8 +75,9 @@ def daily_clock_offset(series, latitude, longitude, search_h=(-6.0, -3.0), min_r
     Returns a DataFrame indexed by day: offset_h, r. Days with > 10 % missing values are skipped.
     """
     start = series.index.min().normalize()
-    grid = pd.date_range(start, series.index.max().normalize() + pd.Timedelta(days=1),
-                         freq=STEP, inclusive="left")
+    grid = pd.date_range(
+        start, series.index.max().normalize() + pd.Timedelta(days=1), freq=STEP, inclusive="left"
+    )
     values = series.reindex(grid).to_numpy(dtype=float)
 
     # Clear-sky once, on a UTC grid wide enough for all candidate offsets. Label step i with
@@ -89,12 +90,12 @@ def daily_clock_offset(series, latitude, longitude, search_h=(-6.0, -3.0), min_r
 
     rows = []
     for d0 in range(0, len(grid), STEPS_PER_DAY):
-        day = values[d0:d0 + STEPS_PER_DAY]
+        day = values[d0 : d0 + STEPS_PER_DAY]
         if np.isnan(day).mean() > 0.1:
             continue
         best_k, best_r = np.nan, -np.inf
         for k in offsets:
-            cs = clear[pad + d0 - k: pad + d0 - k + STEPS_PER_DAY]
+            cs = clear[pad + d0 - k : pad + d0 - k + STEPS_PER_DAY]
             ok = ~np.isnan(day) & (cs > 20)  # daytime by the model; night adds no information
             if ok.sum() < 50 or np.std(day[ok]) == 0:
                 continue
@@ -146,5 +147,4 @@ def rule_windows(years, rule_a="America/New_York", rule_b=EU_DST_UTC5):
     days = pd.date_range(f"{min(years)}-01-01", f"{max(years)}-12-31", freq="D")
     differ = expected_offset_h(days, rule_a) != expected_offset_h(days, rule_b)
     runs = (pd.Series(differ, index=days) != pd.Series(differ, index=days).shift()).cumsum()
-    return [(g.index[0], g.index[-1]) for _, g in pd.Series(differ, index=days).groupby(runs)
-            if g.iloc[0]]
+    return [(g.index[0], g.index[-1]) for _, g in pd.Series(differ, index=days).groupby(runs) if g.iloc[0]]

@@ -26,28 +26,30 @@ def daily_normalized_energy(inputs, ac, t_cell, config, gamma=None):
     """
     dt = step_hours(inputs.index)
     poa = inputs["poa_wm2"]
-    expected = expected_power(poa, t_cell, config, gamma)["p_ac_kw"]   # same for every inverter
+    expected = expected_power(poa, t_cell, config, gamma)["p_ac_kw"]  # same for every inverter
 
     base = inputs["daylight"] & poa.notna() & t_cell.notna()
     valid = ac.notna() & base.to_numpy()[:, None]
     _, down = inverter_states(ac, poa, config)
     up = valid & ~down
 
-    steps = pd.DataFrame({
-        "e_meas_kwh": ac.where(up).sum(axis=1) * dt,
-        "e_exp_kwh": expected * up.sum(axis=1) * dt,
-        "n_up": up.sum(axis=1),
-        "n_valid": valid.sum(axis=1),
-        "n_daylight": inputs["daylight"].astype(int) * ac.shape[1],
-        "poa_kwh_m2": poa.where(base) * dt / 1000,
-    })
+    steps = pd.DataFrame(
+        {
+            "e_meas_kwh": ac.where(up).sum(axis=1) * dt,
+            "e_exp_kwh": expected * up.sum(axis=1) * dt,
+            "n_up": up.sum(axis=1),
+            "n_valid": valid.sum(axis=1),
+            "n_daylight": inputs["daylight"].astype(int) * ac.shape[1],
+            "poa_kwh_m2": poa.where(base) * dt / 1000,
+        }
+    )
     day = steps.groupby(_period(inputs.index, "D")).sum()
     day = day[day["n_daylight"] > 0]
     out = pd.DataFrame(index=day.index)
     out["energy_norm"] = day["e_meas_kwh"] / day["e_exp_kwh"]
     out["poa_kwh_m2"] = day["poa_kwh_m2"]
-    out["coverage"] = day["n_valid"] / day["n_daylight"]          # usable, running or not
-    out["running_share"] = day["n_up"] / day["n_valid"]           # share not down
+    out["coverage"] = day["n_valid"] / day["n_daylight"]  # usable, running or not
+    out["running_share"] = day["n_up"] / day["n_valid"]  # share not down
     return out
 
 
@@ -65,11 +67,13 @@ def daily_series(inputs, ac, t_cell, config, gamma=None):
     pr = kpi_table(inputs, ac, t_cell, config, gamma, t_ref, freq="D")["pr_wc_excl_down"]
 
     out = norm.join(pr.rename("pr_wc"))
-    keep = ((out["coverage"] >= config["kpi"]["day_min_coverage"])
-            & (out["running_share"] >= config["degradation"]["min_running_share"])
-            & (out["poa_kwh_m2"] >= config["degradation"]["min_daily_poa_kwh_m2"]))
+    keep = (
+        (out["coverage"] >= config["kpi"]["day_min_coverage"])
+        & (out["running_share"] >= config["degradation"]["min_running_share"])
+        & (out["poa_kwh_m2"] >= config["degradation"]["min_daily_poa_kwh_m2"])
+    )
     out.loc[~keep, ["energy_norm", "pr_wc"]] = float("nan")
-    out.index = out.index.to_timestamp()                 # Period -> naive local midnight
+    out.index = out.index.to_timestamp()  # Period -> naive local midnight
     return out.asfreq("D")
 
 
@@ -82,9 +86,11 @@ def yoy_rate(series, uncertainty_method="simple", seed=1):
     soiling_run): the rate itself does not depend on it, the interval moves by up to ~0.04 %/yr.
     """
     from rdtools.degradation import degradation_year_on_year
+
     np.random.seed(seed)
-    rd, ci, _ = degradation_year_on_year(series.dropna(), recenter=True,
-                                         uncertainty_method=uncertainty_method)
+    rd, ci, _ = degradation_year_on_year(
+        series.dropna(), recenter=True, uncertainty_method=uncertainty_method
+    )
     return rd, ci[0], ci[1]
 
 
@@ -96,13 +102,21 @@ def filter_sensitivity(inputs, ac, t_cell, config, poa_grid, running_grid, end="
     rows = []
     for poa_min in poa_grid:
         for run_min in running_grid:
-            cfg = {**config, "degradation": {"min_daily_poa_kwh_m2": poa_min,
-                                             "min_running_share": run_min}}
+            cfg = {**config, "degradation": {"min_daily_poa_kwh_m2": poa_min, "min_running_share": run_min}}
             s = daily_series(inputs, ac, t_cell, cfg)["energy_norm"]
             for label, part in (("to " + end, s[:end]), ("full", s)):
                 rd, lo, hi = yoy_rate(part)
-                rows.append({"min_poa": poa_min, "min_running": run_min, "period": label,
-                             "days": int(part.notna().sum()), "rd_pct_yr": rd, "ci_low": lo, "ci_high": hi})
+                rows.append(
+                    {
+                        "min_poa": poa_min,
+                        "min_running": run_min,
+                        "period": label,
+                        "days": int(part.notna().sum()),
+                        "rd_pct_yr": rd,
+                        "ci_low": lo,
+                        "ci_high": hi,
+                    }
+                )
     return pd.DataFrame(rows)
 
 
@@ -127,10 +141,12 @@ def soiling_run(daily, precip=None, precip_threshold=2.0, reps=200, seed=1):
     np.random.seed(seed)
     kwargs = {}
     if precip is not None:
-        kwargs = {"precipitation_daily": precip.reindex(daily.index).fillna(0),
-                  "precip_threshold": precip_threshold, "clean_criterion": "precip_and_shift"}
-    ratio, ci, info = soiling_srr(daily["energy_norm"], daily["poa_kwh_m2"].fillna(0),
-                                  reps=reps, **kwargs)
+        kwargs = {
+            "precipitation_daily": precip.reindex(daily.index).fillna(0),
+            "precip_threshold": precip_threshold,
+            "clean_criterion": "precip_and_shift",
+        }
+    ratio, ci, info = soiling_srr(daily["energy_norm"], daily["poa_kwh_m2"].fillna(0), reps=reps, **kwargs)
     table = info["soiling_interval_summary"]
     return ratio, ci[0], ci[1], int(table["valid"].sum()), len(table)
 
@@ -148,12 +164,14 @@ def pr_by_poa_source(inputs, ac, config, external, min_valid=10):
     _, down = inverter_states(ac, poa, config)
     up = ac.notna() & ~down & inputs["daylight"].to_numpy()[:, None]
     n_up = up.sum(axis=1)
-    e_kwh = ac.where(up).sum(axis=1) / 12                  # 5-min steps -> kWh
+    e_kwh = ac.where(up).sum(axis=1) / 12  # 5-min steps -> kWh
 
     hourly = pd.DataFrame({"e_kwh": e_kwh, "n_up": n_up, "plant": poa}).resample(
-        "1h", closed="right", label="right")
-    h = pd.DataFrame({"e_kwh": hourly["e_kwh"].sum(), "n_up": hourly["n_up"].sum() / 12,
-                      "plant": hourly["plant"].mean()})
+        "1h", closed="right", label="right"
+    )
+    h = pd.DataFrame(
+        {"e_kwh": hourly["e_kwh"].sum(), "n_up": hourly["n_up"].sum() / 12, "plant": hourly["plant"].mean()}
+    )
     h = h.where(hourly["plant"].count() >= min_valid)
     p0 = inverter_dc_kw(config)
     cols = {"plant": h["plant"], **{k: v.reindex(h.index) for k, v in external.items()}}
@@ -177,8 +195,16 @@ def yoy_table(daily, end="2022-12-31"):
     for col in ("energy_norm", "pr_wc"):
         for label, s in (("full", daily[col]), ("to " + end[:7], daily[col][:end])):
             rd, lo, hi = yoy_rate(s)
-            rows.append({"series": col, "period": label, "days": int(s.notna().sum()),
-                         "rd_pct_yr": rd, "ci_low": lo, "ci_high": hi})
+            rows.append(
+                {
+                    "series": col,
+                    "period": label,
+                    "days": int(s.notna().sum()),
+                    "rd_pct_yr": rd,
+                    "ci_low": lo,
+                    "ci_high": hi,
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -189,13 +215,22 @@ def soiling_table(daily, rain, thresholds=(1, 2, 5, 10), end="2022-12-31"):
     The 2 mm case on the full period is the one used in the shortfall split.
     """
     names = ["ratio", "ci_low", "ci_high", "valid", "intervals"]
-    rows = [{"cleaning_info": "upward jumps only", "period": "full",
-             **dict(zip(names, soiling_run(daily)))}]
+    rows = [{"cleaning_info": "upward jumps only", "period": "full", **dict(zip(names, soiling_run(daily)))}]
     for th in thresholds:
-        rows.append({"cleaning_info": f"rain >= {th} mm + jumps", "period": "full",
-                     **dict(zip(names, soiling_run(daily, rain, th)))})
-    rows.append({"cleaning_info": "rain >= 2 mm + jumps", "period": "to " + end[:7],
-                 **dict(zip(names, soiling_run(daily[:end], rain, 2.0)))})
+        rows.append(
+            {
+                "cleaning_info": f"rain >= {th} mm + jumps",
+                "period": "full",
+                **dict(zip(names, soiling_run(daily, rain, th))),
+            }
+        )
+    rows.append(
+        {
+            "cleaning_info": "rain >= 2 mm + jumps",
+            "period": "to " + end[:7],
+            **dict(zip(names, soiling_run(daily[:end], rain, 2.0))),
+        }
+    )
     table = pd.DataFrame(rows)
     table["loss_pct"] = (1 - table["ratio"]) * 100
     return table
@@ -224,10 +259,15 @@ def external_poa_comparison(plant_hourly, external, min_poa=200, window=12):
     for name, series in external.items():
         both = pd.concat([plant_hourly.rename("p"), series.rename("e")], axis=1).dropna()
         sun = both[both.p > min_poa]
-        stats.append({"source": name, "hours": len(sun),
-                      "mbe_pct": (sun.e - sun.p).mean() / sun.p.mean() * 100,
-                      "nrmse_pct": np.sqrt(((sun.e - sun.p) ** 2).mean()) / sun.p.mean() * 100,
-                      "r": sun.e.corr(sun.p)})
+        stats.append(
+            {
+                "source": name,
+                "hours": len(sun),
+                "mbe_pct": (sun.e - sun.p).mean() / sun.p.mean() * 100,
+                "nrmse_pct": np.sqrt(((sun.e - sun.p) ** 2).mean()) / sun.p.mean() * 100,
+                "r": sun.e.corr(sun.p),
+            }
+        )
         m = both.resample("MS").sum()
         m = m[m.p > 0]
         monthly[name] = m.e / m.p
@@ -248,7 +288,9 @@ def shortfall_split(daily, soiling_pct, aoi_pct):
     Soiling is an estimate, AOI an upper bound (the reference cells lose to reflection too), so
     the unexplained part is a range: min subtracts both, max only soiling.
     """
-    split = pd.DataFrame({"shortfall_pct": (1 - daily["energy_norm"]).groupby(daily.index.year).median() * 100})
+    split = pd.DataFrame(
+        {"shortfall_pct": (1 - daily["energy_norm"]).groupby(daily.index.year).median() * 100}
+    )
     split["soiling_pct"] = soiling_pct
     split["aoi_upper_bound_pct"] = aoi_pct
     split["unexplained_min_pct"] = split["shortfall_pct"] - soiling_pct - aoi_pct

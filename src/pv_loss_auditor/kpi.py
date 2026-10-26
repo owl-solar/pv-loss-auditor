@@ -42,8 +42,9 @@ def step_hours(index: pd.DatetimeIndex) -> float:
     return hours
 
 
-def reference_power(poa: pd.Series, t_cell: pd.Series, p0_kw: float, gamma: float | None = None,
-                    t_ref: float | None = None) -> pd.Series:
+def reference_power(
+    poa: pd.Series, t_cell: pd.Series, p0_kw: float, gamma: float | None = None, t_ref: float | None = None
+) -> pd.Series:
     """Reference (expected-at-nameplate) power in kW.
 
         P_ref = P0 x G_poa / 1000 x [1 + gamma x (T_cell - T_ref)]
@@ -63,7 +64,7 @@ def reference_power(poa: pd.Series, t_cell: pd.Series, p0_kw: float, gamma: floa
 def weighted_t_ref(t_cell: pd.Series, poa: pd.Series, mask: pd.Series) -> float:
     """POA-weighted mean cell temperature: the 'typical operating temperature' of the plant.
 
-        T_ref = sum(T_cell x G_poa) / sum(G_poa)   over the steps in `mask`
+    T_ref = sum(T_cell x G_poa) / sum(G_poa)   over the steps in `mask`
     """
     m = mask & t_cell.notna() & poa.notna()
     if not poa[m].sum() > 0:
@@ -71,8 +72,9 @@ def weighted_t_ref(t_cell: pd.Series, poa: pd.Series, mask: pd.Series) -> float:
     return float((t_cell[m] * poa[m]).sum() / poa[m].sum())
 
 
-def inverter_states(ac: pd.DataFrame, poa: pd.Series,
-                    config: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
+def inverter_states(
+    ac: pd.DataFrame, poa: pd.Series, config: Mapping[str, Any]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Boolean frames (known, down) per inverter-step, for daylight steps with POA > threshold.
 
     known: POA above the availability threshold and the inverter's AC is valid;
@@ -81,7 +83,7 @@ def inverter_states(ac: pd.DataFrame, poa: pd.Series,
     """
     k = config["kpi"]
     rating = config["inverters"]["ac_kw"][0]["ac_kw"]
-    lit = (poa > k["availability_poa_min_wm2"]).to_numpy()[:, None]   # one column, broadcast
+    lit = (poa > k["availability_poa_min_wm2"]).to_numpy()[:, None]  # one column, broadcast
     known = ac.notna() & lit
     down = known & (ac < k["down_p_ac_fraction"] * rating)
     return known, down
@@ -92,8 +94,15 @@ def _period(index: pd.DatetimeIndex, freq: str) -> pd.PeriodIndex:
     return index.tz_convert(LOCAL_TZ).tz_localize(None).to_period(freq)
 
 
-def kpi_table(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Mapping[str, Any],
-              gamma: float, t_ref_wc: float, freq: str = "M") -> pd.DataFrame:
+def kpi_table(
+    inputs: pd.DataFrame,
+    ac: pd.DataFrame,
+    t_cell: pd.Series,
+    config: Mapping[str, Any],
+    gamma: float,
+    t_ref_wc: float,
+    freq: str = "M",
+) -> pd.DataFrame:
     """KPIs per period. One row per local month ("M"), year ("Y") or day ("D").
 
     Columns: energy, reference yield, the three PR variants with and without downtime, the meter
@@ -124,9 +133,9 @@ def kpi_table(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config:
 
     # Step usable for PR: daylight, POA and cell temperature known.
     base = inputs["daylight"] & poa.notna() & t_cell.notna()
-    valid = ac.notna() & base.to_numpy()[:, None]            # inverter-steps usable for PR
+    valid = ac.notna() & base.to_numpy()[:, None]  # inverter-steps usable for PR
     lit_known, down = inverter_states(ac, poa, config)
-    up = valid & ~down                                      # same, without stopped inverters
+    up = valid & ~down  # same, without stopped inverters
 
     refs = {
         "raw": reference_power(poa, t_cell, p0_inv),
@@ -179,15 +188,16 @@ def kpi_table(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config:
     out["specific_yield_kwh_kwp"] = g["e_ac_known_kwh"] / (p0_inv * n_inv)
     out["availability"] = 1 - g["n_avail_down"] / g["n_avail_known"]
     out["inv_to_meter"] = g["e_inv_check_kwh"] / g["e_meter_check_kwh"]
-    out["pr_coverage"] = g["n_valid"] / g["n_daylight"]       # usable share of inverter-steps
+    out["pr_coverage"] = g["n_valid"] / g["n_daylight"]  # usable share of inverter-steps
     out["yield_coverage"] = g["n_known"] / g["n_daylight"]
     return out
 
 
-def downtime_share(ac: pd.DataFrame, poa: pd.Series, config: Mapping[str, Any],
-                   freq: str = "M") -> pd.DataFrame:
+def downtime_share(
+    ac: pd.DataFrame, poa: pd.Series, config: Mapping[str, Any], freq: str = "M"
+) -> pd.DataFrame:
     """Share of lit, known inverter-steps with the inverter down: inverters x periods."""
     known, down = inverter_states(ac, poa, config)
     period = _period(ac.index, freq)
     share = down.groupby(period).sum() / known.groupby(period).sum()
-    return share.T   # rows = inverters, columns = periods (NaN where nothing is known)
+    return share.T  # rows = inverters, columns = periods (NaN where nothing is known)

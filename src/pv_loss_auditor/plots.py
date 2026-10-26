@@ -27,14 +27,35 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
 
     # Two stacked axes sharing x: a thin strip for gaps on top, the heatmap below.
     fig, (ax_gap, ax) = plt.subplots(
-        2, 1, figsize=(15, 0.26 * len(order) + 2.6), sharex=True,
-        gridspec_kw={"height_ratios": [0.9, len(order) * 0.26]})
+        2,
+        1,
+        figsize=(15, 0.26 * len(order) + 2.6),
+        sharex=True,
+        gridspec_kw={"height_ratios": [0.9, len(order) * 0.26]},
+    )
     ax.set_facecolor(NO_DATA_GRAY)
     # NaN cells are not drawn by pcolormesh, so the gray, hatched background shows through.
-    ax.add_patch(plt.Rectangle((0, 0), len(months), len(order), facecolor=NO_DATA_GRAY,
-                               hatch="///", edgecolor="#bfbdb7", linewidth=0, zorder=0))
-    mesh = ax.pcolormesh(np.ma.masked_invalid(data.to_numpy(dtype=float)), cmap=cmap,
-                         vmin=0, vmax=100, edgecolors="white", linewidth=0.5, zorder=1)
+    ax.add_patch(
+        plt.Rectangle(
+            (0, 0),
+            len(months),
+            len(order),
+            facecolor=NO_DATA_GRAY,
+            hatch="///",
+            edgecolor="#bfbdb7",
+            linewidth=0,
+            zorder=0,
+        )
+    )
+    mesh = ax.pcolormesh(
+        np.ma.masked_invalid(data.to_numpy(dtype=float)),
+        cmap=cmap,
+        vmin=0,
+        vmax=100,
+        edgecolors="white",
+        linewidth=0.5,
+        zorder=1,
+    )
 
     ax.set_yticks(np.arange(len(order)) + 0.5, order, fontsize=8, color=INK)
     ax.invert_yaxis()
@@ -52,8 +73,7 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
     for name, labs in groups:
         if y:
             ax.axhline(y, color=INK, linewidth=1.2, zorder=3)
-        ax.text(len(months) + 0.8, y + len(labs) / 2, name, va="center", fontsize=9,
-                color=INK, rotation=270)
+        ax.text(len(months) + 0.8, y + len(labs) / 2, name, va="center", fontsize=9, color=INK, rotation=270)
         y += len(labs)
 
     # Gap strip: periods with no rows in the files, one bar per distinct gap.
@@ -75,14 +95,24 @@ def availability_heatmap(table, groups, gaps=None, title="", min_gap_days=7):
         for _, g in big.iterrows():
             x0, x1 = month_x(g["last_before"]), month_x(g["first_after"])
             ax_gap.plot([x0, x1], [0.25, 0.25], color=INK, linewidth=4, solid_capstyle="butt")
-            ax_gap.text((x0 + x1) / 2, 0.45, f"{g['days']:.0f} d", ha="center",
-                        fontsize=7, color=INK)
+            ax_gap.text((x0 + x1) / 2, 0.45, f"{g['days']:.0f} d", ha="center", fontsize=7, color=INK)
 
     cbar = fig.colorbar(mesh, ax=ax, pad=0.035, fraction=0.02)
     cbar.set_label("% of daylight snapshots with a valid value", fontsize=9, color=INK)
-    ax.legend(handles=[Patch(facecolor=NO_DATA_GRAY, hatch="///", edgecolor="#bfbdb7",
-                             label="no daylight snapshots in month (gap or too few samples)")],
-              loc="upper left", bbox_to_anchor=(0, -0.06), frameon=False, fontsize=8)
+    ax.legend(
+        handles=[
+            Patch(
+                facecolor=NO_DATA_GRAY,
+                hatch="///",
+                edgecolor="#bfbdb7",
+                label="no daylight snapshots in month (gap or too few samples)",
+            )
+        ],
+        loc="upper left",
+        bbox_to_anchor=(0, -0.06),
+        frameon=False,
+        fontsize=8,
+    )
     ax.set_xlim(0, len(months))
     ax.set_ylim(len(order), 0)
     ax_gap.set_title(title, loc="left", fontsize=11, color=INK)
@@ -97,8 +127,7 @@ def geometry_check_plot(day_poa, grid, ac_profiles, ac_rating_kw, title=""):
     grid        : DataFrame tilts x azimuths of nRMSE (%), from geometry.orientation_grid
     ac_profiles : DataFrame, index = local hour (float), columns = days; AC / rating
     """
-    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 4.6),
-                                        gridspec_kw={"width_ratios": [1.2, 1, 1.2]})
+    fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(16, 4.6), gridspec_kw={"width_ratios": [1.2, 1, 1.2]})
     hours = day_poa.index.hour + day_poa.index.minute / 60
     ax1.plot(hours, day_poa["measured"], color=INK, linewidth=2.2, label="measured (mean of cells)")
     ax1.plot(hours, day_poa["fixed"], color="#256abf", linewidth=1.4, label="model: fixed 20°/180°")
@@ -109,13 +138,26 @@ def geometry_check_plot(day_poa, grid, ac_profiles, ac_rating_kw, title=""):
     ax1.legend(fontsize=8, frameon=False)
 
     cmap = LinearSegmentedColormap.from_list("blue_seq", BLUE_RAMP[::-1])  # dark = better fit
-    mesh = ax2.pcolormesh(np.arange(len(grid.columns) + 1), np.arange(len(grid.index) + 1),
-                          grid.to_numpy(dtype=float), cmap=cmap, edgecolors="white", linewidth=0.5)
+    mesh = ax2.pcolormesh(
+        np.arange(len(grid.columns) + 1),
+        np.arange(len(grid.index) + 1),
+        grid.to_numpy(dtype=float),
+        cmap=cmap,
+        edgecolors="white",
+        linewidth=0.5,
+    )
     for i, tilt in enumerate(grid.index):
         for j, az in enumerate(grid.columns):
             v = grid.loc[tilt, az]
-            ax2.text(j + 0.5, i + 0.5, f"{v:.0f}", ha="center", va="center", fontsize=7,
-                     color="white" if v < grid.to_numpy().mean() else INK)
+            ax2.text(
+                j + 0.5,
+                i + 0.5,
+                f"{v:.0f}",
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white" if v < grid.to_numpy().mean() else INK,
+            )
     ax2.set_xticks(np.arange(len(grid.columns)) + 0.5, grid.columns, fontsize=8)
     ax2.set_yticks(np.arange(len(grid.index)) + 0.5, grid.index, fontsize=8)
     ax2.set_xlabel("azimuth, °", fontsize=9)
@@ -125,8 +167,9 @@ def geometry_check_plot(day_poa, grid, ac_profiles, ac_rating_kw, title=""):
 
     for col in ac_profiles.columns:
         ax3.plot(ac_profiles.index, ac_profiles[col], color="#6da7ec", linewidth=0.7, alpha=0.6)
-    ax3.plot(ac_profiles.index, ac_profiles.median(axis=1), color=INK, linewidth=2,
-             label="median of clear days")
+    ax3.plot(
+        ac_profiles.index, ac_profiles.median(axis=1), color=INK, linewidth=2, label="median of clear days"
+    )
     ax3.axhline(1, color="#d9622b", linewidth=1, linestyle="--", label=f"{ac_rating_kw:.0f} kW rating")
     ax3.set_xlabel("local time, h", fontsize=9)
     ax3.set_ylabel("AC / inverter rating", fontsize=9)
@@ -154,14 +197,20 @@ def clock_offset_plot(offsets, base, other, windows, title=""):
     """
     base_label, base_line = base
     other_label, other_line = other
-    fig, axes = plt.subplots(len(offsets), 1, figsize=(14, 2.0 * len(offsets)), sharex=True,
-                             squeeze=False)
+    fig, axes = plt.subplots(len(offsets), 1, figsize=(14, 2.0 * len(offsets)), sharex=True, squeeze=False)
     for ax, (label, off) in zip(axes[:, 0], offsets.items()):
         for a, b in windows:
             ax.axvspan(a, b + pd.Timedelta(days=1), color="#f3d3c0", linewidth=0, zorder=0)
         ax.axhline(0, color="#256abf", linewidth=1.2, label=base_label, zorder=1)
-        ax.step(other_line.index, other_line - base_line, where="post", color="#d9622b",
-                linewidth=1.2, label=other_label, zorder=1)
+        ax.step(
+            other_line.index,
+            other_line - base_line,
+            where="post",
+            color="#d9622b",
+            linewidth=1.2,
+            label=other_label,
+            zorder=1,
+        )
         resid = off["offset_h"] - base_line.reindex(off.index)
         ax.scatter(off.index, resid, s=9, color=INK, zorder=3, label="detected, clear days")
         ax.set_ylim(-1.6, 0.6)
@@ -169,8 +218,7 @@ def clock_offset_plot(offsets, base, other, windows, title=""):
         ax.set_ylabel(label, fontsize=9, color=INK, rotation=0, ha="right", va="center")
         ax.grid(axis="y", color="#e6e5e1")
         ax.tick_params(colors=INK, labelsize=9)
-    axes[0, 0].legend(loc="lower left", bbox_to_anchor=(0, 1.0), fontsize=8, frameon=False,
-                      ncol=3)
+    axes[0, 0].legend(loc="lower left", bbox_to_anchor=(0, 1.0), fontsize=8, frameon=False, ncol=3)
     axes[0, 0].set_title(title, loc="left", fontsize=11, color=INK, pad=22)
     fig.tight_layout()
     return fig
@@ -214,8 +262,15 @@ def drift_plot(monthly, title=""):
     x = monthly.index.to_timestamp()
     for color, col in zip(SERIES, monthly.columns):
         ax.plot(x, monthly[col], color=color, linewidth=2, marker="o", markersize=4, label=col)
-        ax.annotate(col, (x[-1], monthly[col].iloc[-1]), xytext=(6, 0), textcoords="offset points",
-                    fontsize=8, color=INK, va="center")
+        ax.annotate(
+            col,
+            (x[-1], monthly[col].iloc[-1]),
+            xytext=(6, 0),
+            textcoords="offset points",
+            fontsize=8,
+            color=INK,
+            va="center",
+        )
     ax.set_ylabel("cell / pyranometer 02B", fontsize=9)
     ax.legend(fontsize=8, frameon=False, loc="lower left", ncol=3)
     _style(ax, title)
@@ -227,8 +282,11 @@ def pr_variants_plot(table, title=""):
     """Monthly PR: raw (A), STC-corrected (B), weather-corrected (C); excluding downtime."""
     fig, ax = plt.subplots(figsize=(12, 4))
     x = table.index.to_timestamp()
-    labels = {"pr_raw_excl_down": "A  raw", "pr_stc_excl_down": "B  T_ref = 25 °C",
-              "pr_wc_excl_down": "C  T_ref = period mean"}
+    labels = {
+        "pr_raw_excl_down": "A  raw",
+        "pr_stc_excl_down": "B  T_ref = 25 °C",
+        "pr_wc_excl_down": "C  T_ref = period mean",
+    }
     for color, (col, label) in zip(SERIES, labels.items()):
         ax.plot(x, table[col], color=color, linewidth=2, marker="o", markersize=4, label=label)
     ax.set_ylabel("PR (running inverters)", fontsize=9)
@@ -247,8 +305,16 @@ def downtime_heatmap(down_share, title=""):
     cmap = LinearSegmentedColormap.from_list("blue_seq", BLUE_RAMP)
     cmap.set_bad(NO_DATA_GRAY)
     values = np.ma.masked_invalid(down_share.to_numpy(dtype=float))
-    mesh = ax.pcolormesh(np.arange(down_share.shape[1] + 1), np.arange(down_share.shape[0] + 1),
-                         values, cmap=cmap, vmin=0, vmax=1, edgecolors="white", linewidth=0.4)
+    mesh = ax.pcolormesh(
+        np.arange(down_share.shape[1] + 1),
+        np.arange(down_share.shape[0] + 1),
+        values,
+        cmap=cmap,
+        vmin=0,
+        vmax=1,
+        edgecolors="white",
+        linewidth=0.4,
+    )
     months = [str(p) for p in down_share.columns]
     step = 3
     ax.set_xticks(np.arange(0, len(months), step) + 0.5, months[::step], fontsize=7, rotation=90)
@@ -263,16 +329,31 @@ def downtime_heatmap(down_share, title=""):
 
 
 WATERFALL_LABELS = {
-    "temperature": "temperature", "dc_losses": "design DC", "inverter": "inverter eff.",
-    "clipping": "clipping", "downtime": "downtime", "unknown_ac": "AC unknown",
-    "channel_credit": "channel credit", "running_shortfall": "running shortfall",
-    "reconciliation": "meter recon.", "after_inverters": "after inverters",
+    "temperature": "temperature",
+    "dc_losses": "design DC",
+    "inverter": "inverter eff.",
+    "clipping": "clipping",
+    "downtime": "downtime",
+    "unknown_ac": "AC unknown",
+    "channel_credit": "channel credit",
+    "running_shortfall": "running shortfall",
+    "reconciliation": "meter recon.",
+    "after_inverters": "after inverters",
 }
 # Colour = what the step rests on: gray = model / assumption, orange = measured loss,
 # green = credit (energy that was produced but not reported by the inverter channels).
-_WATERFALL_COLOR = {"temperature": MUTED, "dc_losses": MUTED, "inverter": MUTED, "clipping": MUTED,
-                    "downtime": SERIES[1], "unknown_ac": SERIES[1], "channel_credit": SERIES[2],
-                    "running_shortfall": SERIES[1], "reconciliation": MUTED, "after_inverters": MUTED}
+_WATERFALL_COLOR = {
+    "temperature": MUTED,
+    "dc_losses": MUTED,
+    "inverter": MUTED,
+    "clipping": MUTED,
+    "downtime": SERIES[1],
+    "unknown_ac": SERIES[1],
+    "channel_credit": SERIES[2],
+    "running_shortfall": SERIES[1],
+    "reconciliation": MUTED,
+    "after_inverters": MUTED,
+}
 
 
 def waterfall_plot(table, steps, title=""):
@@ -288,9 +369,13 @@ def waterfall_plot(table, steps, title=""):
             ax.bar(i, abs(loss), bottom=level - max(loss, 0), color=_WATERFALL_COLOR[step])
             level -= loss
         ax.bar(len(steps) + 1, row["metered_kwh"] / 1e6, color=SERIES[0])
-        ax.set_xticks(range(len(steps) + 2),
-                      ["nominal"] + [WATERFALL_LABELS[s] for s in steps] + ["meter"],
-                      rotation=45, ha="right", fontsize=8)
+        ax.set_xticks(
+            range(len(steps) + 2),
+            ["nominal"] + [WATERFALL_LABELS[s] for s in steps] + ["meter"],
+            rotation=45,
+            ha="right",
+            fontsize=8,
+        )
         ax.set_ylabel("GWh", fontsize=9)
         _style(ax, f"{title} {period}")
     for ax in axes.ravel()[n:]:
@@ -304,9 +389,9 @@ def loss_causes_plot(share, title=""):
     colors = [MUTED, SERIES[1], SERIES[0], BLUE_RAMP[1]]
     fig, ax = plt.subplots(figsize=(13, 4.2))
     x = share.index.to_timestamp()
-    ax.stackplot(x, share.T.to_numpy() * 100, labels=list(share.columns), colors=colors[:share.shape[1]])
+    ax.stackplot(x, share.T.to_numpy() * 100, labels=list(share.columns), colors=colors[: share.shape[1]])
     ax.set_ylabel("% of nominal energy", fontsize=9)
-    ax.set_ylim(0, share.sum(axis=1).max() * 100 * 1.2)   # headroom: the legend must not cover data
+    ax.set_ylim(0, share.sum(axis=1).max() * 100 * 1.2)  # headroom: the legend must not cover data
     ax.legend(fontsize=8, frameon=False, loc="upper left", ncol=4)
     _style(ax, title)
     fig.tight_layout()

@@ -18,7 +18,9 @@ def random_plant(config, seed, n_inv=6, hours=72):
     poa = pd.Series(np.clip(900 * np.sin(np.pi * (hod - 6) / 12), 0, None), index=index)
     t_cell = pd.Series(25 + 20 * poa / 1000, index=index)
     exp = expected_power(poa, t_cell, config)["p_ac_kw"]
-    ac = pd.DataFrame({f"p_ac_inv{i:02d}_kw": exp * rng.uniform(0.85, 1.0, hours) for i in range(1, n_inv + 1)})
+    ac = pd.DataFrame(
+        {f"p_ac_inv{i:02d}_kw": exp * rng.uniform(0.85, 1.0, hours) for i in range(1, n_inv + 1)}
+    )
     stopped = rng.random(ac.shape) < 0.10
     unknown = rng.random(ac.shape) < 0.05
     ac = ac.mask(stopped, 0.0).mask(unknown)
@@ -49,7 +51,8 @@ def test_expected_equals_actual_plus_lost_energy(config, seed):
     _, scope_2d = waterfall_scope(inputs, ac, t_cell)
     reported_kwh = ac.where(scope_2d).sum().sum() * step_hours(inputs.index)
     assert t["expected_kwh"] == pytest.approx(
-        reported_kwh + t["downtime"] + t["unknown_ac"] + t["running_shortfall"], rel=1e-9)
+        reported_kwh + t["downtime"] + t["unknown_ac"] + t["running_shortfall"], rel=1e-9
+    )
 
 
 def test_every_running_inverter_at_90_percent_gives_a_10_percent_shortfall(config):

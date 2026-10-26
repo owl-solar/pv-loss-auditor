@@ -27,7 +27,9 @@ log = logging.getLogger(__name__)
 Config = Mapping[str, Any]
 
 
-def relative_residual(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Config) -> pd.DataFrame:
+def relative_residual(
+    inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series, config: Config
+) -> pd.DataFrame:
     """Peer-normalised residual rel per inverter-step (DataFrame like `ac`, NaN = not usable).
 
     A step counts if it is daylight, POA > min_poa_wm2, T_cell known and the model is below
@@ -42,8 +44,12 @@ def relative_residual(inputs: pd.DataFrame, ac: pd.DataFrame, t_cell: pd.Series,
     rating = require_positive(config["inverters"]["ac_kw"][0]["ac_kw"], "inverter AC rating")
     poa = inputs["poa_wm2"]
     expected = expected_power(poa, t_cell, config)["p_ac_kw"]
-    step_ok = (inputs["daylight"] & (poa > a["min_poa_wm2"]) & t_cell.notna()
-               & (expected < a["max_expected_fraction"] * rating))
+    step_ok = (
+        inputs["daylight"]
+        & (poa > a["min_poa_wm2"])
+        & t_cell.notna()
+        & (expected < a["max_expected_fraction"] * rating)
+    )
     _, down = inverter_states(ac, poa, config)
     usable = ac.notna() & ~down & step_ok.to_numpy()[:, None]
 
@@ -67,18 +73,21 @@ def daily_features(rel: pd.DataFrame, config: Config) -> pd.DataFrame:
     long.columns = ["time", "inverter", "rel"]
     long["date"] = day[rel.index.get_indexer(long["time"])]
     g = long.groupby(["date", "inverter"])["rel"]
-    out = pd.DataFrame({
-        "rel_median": g.median(),
-        "rel_p10": g.quantile(0.10),
-        "frac_below95": g.apply(lambda s: (s < 0.95).mean()),
-        "rel_spread": g.quantile(0.90) - g.quantile(0.10),
-        "n_steps": g.size(),
-    })
+    out = pd.DataFrame(
+        {
+            "rel_median": g.median(),
+            "rel_p10": g.quantile(0.10),
+            "frac_below95": g.apply(lambda s: (s < 0.95).mean()),
+            "rel_spread": g.quantile(0.90) - g.quantile(0.10),
+            "n_steps": g.size(),
+        }
+    )
     return out[out["n_steps"] >= config["anomalies"]["min_day_steps"]]
 
 
-def deviation_from_own_norm(daily_rel_median: pd.DataFrame, window_days: int = 61,
-                            min_days: int = 20) -> pd.DataFrame:
+def deviation_from_own_norm(
+    daily_rel_median: pd.DataFrame, window_days: int = 61, min_days: int = 20
+) -> pd.DataFrame:
     """Daily rel_median minus the inverter's own rolling median (centred, +-30 days).
 
     Healthy inverters sit at fixed offsets from their peers (0.96 ... 1.05, stable over years:
@@ -87,7 +96,7 @@ def deviation_from_own_norm(daily_rel_median: pd.DataFrame, window_days: int = 6
     local dates, columns = inverters (as `daily_features(...)["rel_median"].unstack()`).
     Limit: a slow real degradation of one inverter is absorbed into its norm.
     """
-    daily = daily_rel_median.asfreq("D")           # regular grid, so 61 rows = 61 days
+    daily = daily_rel_median.asfreq("D")  # regular grid, so 61 rows = 61 days
     norm = daily.rolling(window_days, center=True, min_periods=min_days).median()
     return daily - norm
 
@@ -109,10 +118,11 @@ def own_norm_features(feat: pd.DataFrame, config: Config) -> pd.DataFrame:
     """
     out = {}
     for name in FEATURES:
-        wide = feat[name].unstack()                       # dates x inverters
-        dev = deviation_from_own_norm(wide, config["anomalies"]["norm_window_days"],
-                                      config["anomalies"]["norm_min_days"])
-        out["dev_" + name] = dev.stack().dropna()                              # pandas 3 keeps NaN
+        wide = feat[name].unstack()  # dates x inverters
+        dev = deviation_from_own_norm(
+            wide, config["anomalies"]["norm_window_days"], config["anomalies"]["norm_min_days"]
+        )
+        out["dev_" + name] = dev.stack().dropna()  # pandas 3 keeps NaN
     return pd.DataFrame(out).dropna()
 
 
@@ -124,6 +134,7 @@ def forest_scores(x: pd.DataFrame, config: Config) -> pd.Series:
     scikit-learn, so that larger = more anomalous.
     """
     from sklearn.ensemble import IsolationForest
+
     require_nonempty(x, "feature table")
     f = config["anomalies"]["forest"]
     log.info("Isolation Forest: %d rows x %d features, %d trees", len(x), x.shape[1], f["n_estimators"])
@@ -136,6 +147,7 @@ def day_labels(index: pd.MultiIndex, events: pd.DataFrame, config: Config) -> pd
     """Label of each (date, inverter) row: 'fault' (inside a synthetic window), 'excluded'
     (inside a real event excluded from the injection: not clean, not a label) or 'clean'."""
     from pv_loss_auditor.synthetic_faults import _blocked_days
+
     dates = index.get_level_values("date")
     inverters = index.get_level_values("inverter")
     lab = pd.Series("clean", index=index)
@@ -170,17 +182,25 @@ def evaluate_flags(flag, labels, events, config, min_flag_days=None):
         hit = (inverters == e.inverter) & (dates >= e.start) & (dates <= e.end)
         flagged_dates = dates[(flag & hit).to_numpy()]
         first = (flagged_dates.min() - e.start).days if len(flagged_dates) else np.nan
-        rows.append({"inverter": e.inverter, "start": e.start, "strings": e.strings,
-                     "duration_days": (e.end - e.start).days + 1,
-                     "n_days": int(hit.sum()), "n_flagged": int((flag & hit).sum()),
-                     "first_flag_day": first})   # days from the fault start to the first flag
+        rows.append(
+            {
+                "inverter": e.inverter,
+                "start": e.start,
+                "strings": e.strings,
+                "duration_days": (e.end - e.start).days + 1,
+                "n_days": int(hit.sum()),
+                "n_flagged": int((flag & hit).sum()),
+                "first_flag_day": first,
+            }
+        )  # days from the fault start to the first flag
     per_event = pd.DataFrame(rows)
     per_event["detected"] = per_event["n_flagged"] >= n_min
     summary = {
         "precision": tp / (tp + fp) if tp + fp else float("nan"),
         "recall_days": tp / (tp + fn) if tp + fn else float("nan"),
         "recall_events": float(per_event["detected"].mean()) if len(per_event) else float("nan"),
-        "false_alarm_days": fp, "clean_days": int((~fault & use).sum()),
+        "false_alarm_days": fp,
+        "clean_days": int((~fault & use).sum()),
     }
     p, r = summary["precision"], summary["recall_days"]
     summary["f1_days"] = 2 * p * r / (p + r) if p + r else 0.0
@@ -222,8 +242,9 @@ def split_by_year(index, events, labels, tune_until):
     return dates <= cut, dates > cut, events_tune, events_test, lab
 
 
-def tune_and_report(score, thresholds, labels, tune, test, events_tune, events_test, config,
-                    criterion="f1", far_max=0.01):
+def tune_and_report(
+    score, thresholds, labels, tune, test, events_tune, events_test, config, criterion="f1", far_max=0.01
+):
     """Pick a threshold on the tuning rows, report on the test rows.
 
     thresholds: {parameter value: score threshold} (for the forest the parameter is the
@@ -245,8 +266,7 @@ def tune_and_report(score, thresholds, labels, tune, test, events_tune, events_t
         best = table.loc[table["f1_days"].idxmax()]
     elif criterion == "far":
         within = table[table["far"] <= far_max]
-        best = (within.loc[within["recall_days"].idxmax()] if len(within)
-                else table.loc[table["far"].idxmin()])
+        best = within.loc[within["recall_days"].idxmax()] if len(within) else table.loc[table["far"].idxmin()]
     else:
         raise ValueError(f"unknown criterion {criterion!r}")
     flag = score >= best["threshold"]
@@ -302,8 +322,17 @@ def run_detectors(x, labels, events, config, sigma, criteria=("far", "f1")):
             else:
                 thresholds = {k: float(k) for k in config["anomalies"]["rule"]["k_grid"]}
             results[criterion][name] = tune_and_report(
-                score, thresholds, lab, tune, test, ev_tune, ev_test, config,
-                criterion=criterion, far_max=fo["far_max"])
+                score,
+                thresholds,
+                lab,
+                tune,
+                test,
+                ev_tune,
+                ev_test,
+                config,
+                criterion=criterion,
+                far_max=fo["far_max"],
+            )
     return results, {"lab": lab, "ev_tune": ev_tune, "ev_test": ev_test}
 
 
@@ -313,12 +342,20 @@ def summary_table(results):
     rows = []
     for criterion, by_detector in results.items():
         for name, (_, best, s_te, per, _) in by_detector.items():
-            rows.append({
-                "criterion": criterion, "detector": name, "chosen": best,
-                "precision": s_te["precision"], "recall_days": s_te["recall_days"],
-                "recall_events": s_te["recall_events"], "false_alarm_days": s_te["false_alarm_days"],
-                "clean_days": s_te["clean_days"], "far": s_te["false_alarm_days"] / s_te["clean_days"],
-                "median_first_flag_day": per[per.detected].first_flag_day.median()})
+            rows.append(
+                {
+                    "criterion": criterion,
+                    "detector": name,
+                    "chosen": best,
+                    "precision": s_te["precision"],
+                    "recall_days": s_te["recall_days"],
+                    "recall_events": s_te["recall_events"],
+                    "false_alarm_days": s_te["false_alarm_days"],
+                    "clean_days": s_te["clean_days"],
+                    "far": s_te["false_alarm_days"] / s_te["clean_days"],
+                    "median_first_flag_day": per[per.detected].first_flag_day.median(),
+                }
+            )
     return pd.DataFrame(rows)
 
 
@@ -344,8 +381,7 @@ def flags_in_windows(flags, windows):
         row = {"inverter": inverter, "start": pd.Timestamp(start), "end": pd.Timestamp(end)}
         for name, flag in flags.items():
             dates = flag.index.get_level_values("date")
-            inside = ((flag.index.get_level_values("inverter") == inverter)
-                      & (dates >= start) & (dates <= end))
+            inside = (flag.index.get_level_values("inverter") == inverter) & (dates >= start) & (dates <= end)
             row["days"] = int(inside.sum())
             row[name] = int(flag[inside].sum())
         rows.append(row)

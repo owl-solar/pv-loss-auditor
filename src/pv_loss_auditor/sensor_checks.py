@@ -17,10 +17,12 @@ from pv_loss_auditor.model import valid
 def sun_and_aoi(index, config):
     """Sun azimuth (deg) and angle of incidence on the fixed 20/180 plane (deg), UTC index."""
     s, mount = config["system"], config["mount"]
-    sun = pvlib.solarposition.get_solarposition(index, s["latitude"], s["longitude"],
-                                                altitude=s["elevation_m"])
-    aoi = pvlib.irradiance.aoi(mount["tilt_deg"], mount["azimuth_deg"],
-                               sun["apparent_zenith"], sun["azimuth"])
+    sun = pvlib.solarposition.get_solarposition(
+        index, s["latitude"], s["longitude"], altitude=s["elevation_m"]
+    )
+    aoi = pvlib.irradiance.aoi(
+        mount["tilt_deg"], mount["azimuth_deg"], sun["apparent_zenith"], sun["azimuth"]
+    )
     return pd.DataFrame({"sun_azimuth_deg": sun["azimuth"], "aoi_deg": aoi})
 
 
@@ -46,9 +48,9 @@ def lag_curve(a, b, days, lags, mask=None):
     df["day"] = local_day(df.index)
     out = {}
     for lag in lags:
-        df["b_shifted"] = df["b"].shift(lag)   # shift on the full grid: 5-min steps are regular
+        df["b_shifted"] = df["b"].shift(lag)  # shift on the full grid: 5-min steps are regular
         sub = df[df["day"].isin(days) & df["use"] & df["a"].notna() & df["b_shifted"].notna()]
-        sub = sub[sub.groupby("day")["a"].transform("size") > 40]   # enough points per day
+        sub = sub[sub.groupby("day")["a"].transform("size") > 40]  # enough points per day
         out[lag] = sub.groupby("day").apply(lambda x: x["a"].corr(x["b_shifted"])).mean()
     return pd.Series(out)
 
@@ -142,13 +144,13 @@ def plateau_steps(ac_raw, rating_kw, min_steps=6, tol_kw=0.5, lo=0.05, hi=0.98):
     run if it differs from the previous one by less than tol_kw. Unlike the stuck-value test of
     the cleaning (identical values), a small tolerance also catches plateaus with noise.
     """
-    same = ac_raw.diff().abs() < tol_kw                       # step equals the previous one
+    same = ac_raw.diff().abs() < tol_kw  # step equals the previous one
     in_band = (ac_raw > lo * rating_kw) & (ac_raw < hi * rating_kw)
     out = pd.DataFrame(False, index=ac_raw.index, columns=ac_raw.columns)
     for col in ac_raw.columns:
         s = same[col] & in_band[col]
         # run id: increases whenever the condition is False; the run length is a group size
         run_id = (~s).cumsum()
-        length = s.groupby(run_id).transform("sum")           # steps with True in this run
-        out[col] = s & (length >= min_steps - 1)              # n constant steps = n-1 equal pairs
+        length = s.groupby(run_id).transform("sum")  # steps with True in this run
+        out[col] = s & (length >= min_steps - 1)  # n constant steps = n-1 equal pairs
     return out

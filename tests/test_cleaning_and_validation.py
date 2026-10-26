@@ -47,15 +47,21 @@ def test_inverter_zero_and_clipping_plateau_are_not_stuck_but_a_frozen_value_is(
 def test_ac_out_of_range_and_sensor_limits_are_flagged(config):
     data = day_frame([100.0, 900.0, -50.0, 825.0])
     # above 1.05 x rating (866 kW) or below -10 kW
-    assert flag_ac(data, ["x"], config["clean"], 825.0)["flag_range__x"].tolist() == [False, True, True, False]
+    assert flag_ac(data, ["x"], config["clean"], 825.0)["flag_range__x"].tolist() == [
+        False,
+        True,
+        True,
+        False,
+    ]
     temp = day_frame([20.0, 95.0, -40.0]).rename(columns={"x": "t_mod_tc01s1_c"})
     flags = flag_sensor_limits(temp, config["clean"]["sensor_limits"])
     assert flags["flag_range__t_mod_tc01s1_c"].tolist() == [False, True, True]
 
 
 def test_flagged_values_become_nan_in_the_model_inputs():
-    data = pd.DataFrame({"a": [1.0, 2.0, 3.0], "flag_stale__a": [False, True, False],
-                         "flag_range__a": [False, False, True]})
+    data = pd.DataFrame(
+        {"a": [1.0, 2.0, 3.0], "flag_stale__a": [False, True, False], "flag_range__a": [False, False, True]}
+    )
     assert model.valid(data, "a").isna().tolist() == [False, True, True]
 
 
@@ -63,7 +69,7 @@ def test_load_inputs_keeps_missing_values_as_nan_and_never_negative_poa(fixture_
     inputs, ac = model.load_inputs(fixture_config)
     assert inputs.index.equals(ac.index) and ac.shape[1] == 40
     assert (inputs["poa_wm2"].dropna() >= -5).all()
-    assert ac.isna().any().any()                              # real unknown values stay NaN, not filled
+    assert ac.isna().any().any()  # real unknown values stay NaN, not filled
 
 
 # --- warnings ------------------------------------------------------------------------------
@@ -71,8 +77,15 @@ def test_load_inputs_keeps_missing_values_as_nan_and_never_negative_poa(fixture_
 
 def make_inputs(poa):
     index = pd.date_range("2021-06-01", periods=len(poa), freq="60min", tz="UTC")
-    return pd.DataFrame({"poa_wm2": np.asarray(poa, dtype=float), "t_mod_c": 30.0 + np.arange(len(poa)) * 0.1,
-                         "p_ac_meter_kw": 10.0 + np.arange(len(poa)), "daylight": True}, index=index)
+    return pd.DataFrame(
+        {
+            "poa_wm2": np.asarray(poa, dtype=float),
+            "t_mod_c": 30.0 + np.arange(len(poa)) * 0.1,
+            "p_ac_meter_kw": 10.0 + np.arange(len(poa)),
+            "daylight": True,
+        },
+        index=index,
+    )
 
 
 def test_flat_sensor_gives_a_warning(config, caplog):
@@ -90,7 +103,7 @@ def test_healthy_inputs_give_no_warning(config, caplog):
 def test_large_gap_gives_a_warning(config, caplog):
     inputs = make_inputs(np.linspace(100, 900, 20))
     shifted = inputs.index.to_series()
-    shifted.iloc[10:] += pd.Timedelta(days=3)                   # 3-day hole in the middle
+    shifted.iloc[10:] += pd.Timedelta(days=3)  # 3-day hole in the middle
     inputs.index = pd.DatetimeIndex(shifted)
     with caplog.at_level(logging.WARNING):
         warn_suspicious(inputs, config)
@@ -99,7 +112,7 @@ def test_large_gap_gives_a_warning(config, caplog):
 
 def test_missing_poa_gives_a_warning(config, caplog):
     inputs = make_inputs(np.linspace(100, 900, 20))
-    inputs.loc[inputs.index[:10], "poa_wm2"] = np.nan           # half of the daylight steps without POA
+    inputs.loc[inputs.index[:10], "poa_wm2"] = np.nan  # half of the daylight steps without POA
     with caplog.at_level(logging.WARNING):
         warn_suspicious(inputs, config)
     assert "POA is missing" in caplog.text

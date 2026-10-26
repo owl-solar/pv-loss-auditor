@@ -8,8 +8,17 @@ import yaml
 from pv_loss_auditor.validation import require_keys
 
 # Sections every pipeline stage relies on; stage-specific keys are checked where they are used.
-REQUIRED_SECTIONS = ("system", "capacity", "inverters", "modules", "model", "kpi", "losses",
-                     "clean", "validation")
+REQUIRED_SECTIONS = (
+    "system",
+    "capacity",
+    "inverters",
+    "modules",
+    "model",
+    "kpi",
+    "losses",
+    "clean",
+    "validation",
+)
 
 
 def load_config(path: str | Path) -> dict[str, Any]:

@@ -53,32 +53,42 @@ def load_inputs(config: Mapping[str, Any]) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     m = config["model"]
     first_file = sorted(Path(config["clean"]["out_dir"]).glob("9069_clean_*.parquet"))[0]
-    all_columns = pq.read_schema(first_file).names   # read the column list without the data
+    all_columns = pq.read_schema(first_file).names  # read the column list without the data
     inverters = inverter_columns(all_columns)
     meter = config["kpi"]["meter_channel"]
     sensors = m["poa_channels"] + m["t_mod_channels"] + [m["t_amb_channel"], meter]
     wanted = sensors + inverters + ["flag_daylight", "sun_elevation_deg", "poa_clearsky_wm2"]
-    flags = [c for c in all_columns
-             if c.startswith(("flag_stale__", "flag_range__")) and c.split("__", 1)[1] in wanted]
-    data = load_clean(config, columns=wanted + flags)   # parquet reads only these columns
+    flags = [
+        c
+        for c in all_columns
+        if c.startswith(("flag_stale__", "flag_range__")) and c.split("__", 1)[1] in wanted
+    ]
+    data = load_clean(config, columns=wanted + flags)  # parquet reads only these columns
 
     # Mean over the valid sensors: NaN only if none of them is valid at that step.
-    inputs = pd.DataFrame({
-        "poa_wm2": pd.concat([valid(data, c) for c in m["poa_channels"]], axis=1).mean(axis=1),
-        "t_mod_c": pd.concat([valid(data, c) for c in m["t_mod_channels"]], axis=1).mean(axis=1),
-        "t_amb_c": valid(data, m["t_amb_channel"]),
-        "p_ac_meter_kw": valid(data, meter),
-        "daylight": data["flag_daylight"].astype(bool),
-        "sun_elevation_deg": data["sun_elevation_deg"],
-        "poa_clearsky_wm2": data["poa_clearsky_wm2"],
-    })
+    inputs = pd.DataFrame(
+        {
+            "poa_wm2": pd.concat([valid(data, c) for c in m["poa_channels"]], axis=1).mean(axis=1),
+            "t_mod_c": pd.concat([valid(data, c) for c in m["t_mod_channels"]], axis=1).mean(axis=1),
+            "t_amb_c": valid(data, m["t_amb_channel"]),
+            "p_ac_meter_kw": valid(data, meter),
+            "daylight": data["flag_daylight"].astype(bool),
+            "sun_elevation_deg": data["sun_elevation_deg"],
+            "poa_clearsky_wm2": data["poa_clearsky_wm2"],
+        }
+    )
     ac = pd.DataFrame({c: valid(data, c) for c in inverters})
 
     require_nonempty(inputs, "clean dataset")
     check_poa(inputs["poa_wm2"], config)
     warn_suspicious(inputs, config)
-    log.info("model inputs: %d steps %s .. %s, %d inverters", len(inputs), inputs.index.min(),
-             inputs.index.max(), ac.shape[1])
+    log.info(
+        "model inputs: %d steps %s .. %s, %d inverters",
+        len(inputs),
+        inputs.index.min(),
+        inputs.index.max(),
+        ac.shape[1],
+    )
     return inputs, ac
 
 
@@ -90,8 +100,10 @@ def weighted_gamma(config: Mapping[str, Any]) -> float:
     gamma = sum(w * mod["gamma_pmp_pct_per_c"] for w, mod in zip(dc, modules)) / sum(dc)
     gamma = gamma / 100
     if not GAMMA_RANGE_PER_C[0] <= gamma < GAMMA_RANGE_PER_C[1]:
-        raise ValueError(f"temperature coefficient {gamma:.5f} 1/C is outside {GAMMA_RANGE_PER_C}: "
-                         "gamma_pmp_pct_per_c is in percent per degree and must be negative")
+        raise ValueError(
+            f"temperature coefficient {gamma:.5f} 1/C is outside {GAMMA_RANGE_PER_C}: "
+            "gamma_pmp_pct_per_c is in percent per degree and must be negative"
+        )
     return gamma
 
 
@@ -102,7 +114,9 @@ def cell_temperature(inputs: pd.DataFrame, config: Mapping[str, Any]) -> pd.Seri
     1000 W/m2. NaN where no thermocouple is valid; there is no modelled fallback (see config).
     """
     return pvlib.temperature.sapm_cell_from_module(
-        inputs["t_mod_c"], inputs["poa_wm2"], deltaT=config["model"]["delta_t_cell_c"],
+        inputs["t_mod_c"],
+        inputs["poa_wm2"],
+        deltaT=config["model"]["delta_t_cell_c"],
     ).rename("t_cell_c")
 
 
@@ -111,9 +125,17 @@ def dc_loss_fraction(config: Mapping[str, Any]) -> float:
     losses = config["model"]["dc_losses_pct"]
     # Everything the audit should measure is set to 0 explicitly, not left at pvlib's defaults.
     total_pct = pvlib.pvsystem.pvwatts_losses(
-        soiling=0, shading=0, snow=0, availability=0, age=0, lid=losses["lid"],
-        mismatch=losses["mismatch"], wiring=losses["wiring"], connections=losses["connections"],
-        nameplate_rating=losses["nameplate_rating"])
+        soiling=0,
+        shading=0,
+        snow=0,
+        availability=0,
+        age=0,
+        lid=losses["lid"],
+        mismatch=losses["mismatch"],
+        wiring=losses["wiring"],
+        connections=losses["connections"],
+        nameplate_rating=losses["nameplate_rating"],
+    )
     return total_pct / 100
 
 
@@ -123,8 +145,9 @@ def inverter_dc_kw(config: Mapping[str, Any]) -> float:
     return dc_kw / require_positive(config["inverters"]["count"], "inverters.count")
 
 
-def expected_power(poa: pd.Series, t_cell: pd.Series, config: Mapping[str, Any],
-                   gamma: float | None = None) -> pd.DataFrame:
+def expected_power(
+    poa: pd.Series, t_cell: pd.Series, config: Mapping[str, Any], gamma: float | None = None
+) -> pd.DataFrame:
     """Expected DC and AC power of one inverter block (kW), DataFrame with p_dc_kw and p_ac_kw.
 
     gamma (1/C) defaults to the DC-weighted nameplate value; pass another value for sensitivity.
@@ -137,10 +160,13 @@ def expected_power(poa: pd.Series, t_cell: pd.Series, config: Mapping[str, Any],
     p_dc = p_dc_module * (1 - dc_loss_fraction(config))
 
     inv = config["model"]["inverter"]
-    pac0 = require_positive(config["inverters"]["ac_kw"][0]["ac_kw"], "inverter AC rating")  # 825 kW, verified in QA
+    pac0 = require_positive(
+        config["inverters"]["ac_kw"][0]["ac_kw"], "inverter AC rating"
+    )  # 825 kW, verified in QA
     # pvwatts_inverter clips at pdc0_inv x eta_inv_nom; choosing pdc0_inv = pac0 / eta_inv_nom
     # puts the clipping level exactly at the AC rating.
-    p_ac = pvlib.inverter.pvwatts(p_dc, pdc0=pac0 / inv["eta_inv_nom"],
-                                  eta_inv_nom=inv["eta_inv_nom"], eta_inv_ref=inv["eta_inv_ref"])
+    p_ac = pvlib.inverter.pvwatts(
+        p_dc, pdc0=pac0 / inv["eta_inv_nom"], eta_inv_nom=inv["eta_inv_nom"], eta_inv_ref=inv["eta_inv_ref"]
+    )
     # At night (G = 0) pvwatts returns a small negative tare loss; the model reports 0.
     return pd.DataFrame({"p_dc_kw": p_dc, "p_ac_kw": p_ac.clip(lower=0)})

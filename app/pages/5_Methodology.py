@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # `common` lives in app/
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # `common` lives in app/
 import common  # noqa: E402
 from pv_loss_auditor.config import load_config  # noqa: E402
 
@@ -16,8 +16,10 @@ info = common.meta()
 price = info["price_usd_per_mwh"]
 
 st.title("Methodology")
-st.markdown("What the audit does, which numbers are measured, which are my assumptions, and what the figures in this "
-            "app do **not** say.")
+st.markdown(
+    "What the audit does, which numbers are measured, which are my assumptions, and what the figures in this "
+    "app do **not** say."
+)
 
 # --- pipeline --------------------------------------------------------------------------------
 st.header("From raw files to the numbers shown here")
@@ -30,31 +32,49 @@ st.markdown(
     "4. **Loss waterfall:** nominal energy → energy at the plant meter, in kWh and USD.\n"
     "5. **Degradation and soiling** (RdTools) and a comparison with reanalysis weather (Open-Meteo).\n"
     "6. **Anomaly detection** on residuals against the other inverters, tested on SYNTHETIC faults.\n"
-    "7. **Export:** `python -m pv_loss_auditor.export_dashboard` saves the small tables in `app/data/`; this app only reads them.")
+    "7. **Export:** `python -m pv_loss_auditor.export_dashboard` saves the small tables in `app/data/`; this app only reads them."
+)
 
 # --- plant and data --------------------------------------------------------------------------
 st.header("Plant and data")
-plant = pd.DataFrame([
-    ("Plant", info["plant"]),
-    ("DC capacity", f"{info['dc_kw']:,.0f} kW (25 992 × 295 W + 103 398 × 300 W modules)"),
-    ("AC capacity", f"{info['ac_kw']:,.0f} kW = 40 inverters × 825 kW (every inverter clips at 825-830 kW)"),
-    ("Mounting", "fixed tilt, 20° / 180°: POA nRMSE 4.9 % on clear days against 36 % for a tracker; "
-                 "the NREL flag 'Wrong mounting config' is not supported by the data"),
-    ("Strings", "metadata (272 vs 68 per inverter) contradicts equal clear-day energy of all inverters; "
-                "170 strings per inverter is derived from the DC power"),
-    ("Period", "2020-05 ... 2023-11 (43 months, 5-minute data), chosen from the coverage map of 2016-2023; "
-               "2018-2020 was rejected (thermocouples work on 0-57 % of the time, a meter gap of 357 days)"),
-    ("Source", "NREL PVDAQ, system 9069 (OEDI S3 bucket), CC BY 4.0, DOI 10.25984/1846021"),
-], columns=["item", "value"])
+plant = pd.DataFrame(
+    [
+        ("Plant", info["plant"]),
+        ("DC capacity", f"{info['dc_kw']:,.0f} kW (25 992 × 295 W + 103 398 × 300 W modules)"),
+        (
+            "AC capacity",
+            f"{info['ac_kw']:,.0f} kW = 40 inverters × 825 kW (every inverter clips at 825-830 kW)",
+        ),
+        (
+            "Mounting",
+            "fixed tilt, 20° / 180°: POA nRMSE 4.9 % on clear days against 36 % for a tracker; "
+            "the NREL flag 'Wrong mounting config' is not supported by the data",
+        ),
+        (
+            "Strings",
+            "metadata (272 vs 68 per inverter) contradicts equal clear-day energy of all inverters; "
+            "170 strings per inverter is derived from the DC power",
+        ),
+        (
+            "Period",
+            "2020-05 ... 2023-11 (43 months, 5-minute data), chosen from the coverage map of 2016-2023; "
+            "2018-2020 was rejected (thermocouples work on 0-57 % of the time, a meter gap of 357 days)",
+        ),
+        ("Source", "NREL PVDAQ, system 9069 (OEDI S3 bucket), CC BY 4.0, DOI 10.25984/1846021"),
+    ],
+    columns=["item", "value"],
+)
 st.dataframe(plant, hide_index=True, width="stretch")
-st.markdown("**QA findings that change the numbers:**\n"
-            "- The files use different clocks: irradiance and environment switch daylight saving time on EU dates, "
-            "inverter and meter files on US dates. Without a conversion per file, power is shifted by 1 h against "
-            "irradiance for about three weeks a year.\n"
-            "- Thermocouple 03 reads implausible values for the whole period (45-80 °C at night) and is excluded.\n"
-            "- Inverters 02, 19-22, 25 and 26 have frozen readings on 28-82 days (flagged, not deleted).\n"
-            "- Sum of inverters / plant meter is 1.022 when all channels report, 0.76-0.95 from 2023-02: part of the "
-            "zeros in 2023 are lost data channels, not stops.")
+st.markdown(
+    "**QA findings that change the numbers:**\n"
+    "- The files use different clocks: irradiance and environment switch daylight saving time on EU dates, "
+    "inverter and meter files on US dates. Without a conversion per file, power is shifted by 1 h against "
+    "irradiance for about three weeks a year.\n"
+    "- Thermocouple 03 reads implausible values for the whole period (45-80 °C at night) and is excluded.\n"
+    "- Inverters 02, 19-22, 25 and 26 have frozen readings on 28-82 days (flagged, not deleted).\n"
+    "- Sum of inverters / plant meter is 1.022 when all channels report, 0.76-0.95 from 2023-02: part of the "
+    "zeros in 2023 are lost data channels, not stops."
+)
 
 # --- expected yield --------------------------------------------------------------------------
 st.header("Expected generation")
@@ -70,13 +90,18 @@ left.markdown(
     "- **Design DC losses** (right), combined multiplicatively. Soiling, shading, snow, availability and age are set "
     "to zero on purpose: they are what the audit measures.\n"
     f"- **Inverter:** pvlib `inverter.pvwatts`, η_nom {config['model']['inverter']['eta_inv_nom']}, clipped at 825 kW.\n"
-    "- **Not calibrated on the data.**")
-total_loss = (1 - (1 - losses / 100).prod()) * 100          # multiplicative, as pvlib.pvwatts_losses
-right.dataframe(pd.concat([losses, pd.Series({"total (combined)": total_loss})]).to_frame("%").style.format("{:.2f}"),
-                width="stretch")
-st.warning("**The 6.34 % design losses are an assumption**, not a PVsyst result (there is no report for this plant). "
-           "At 4 % / 8 % the running shortfall is 24.2 / 16.8 GWh instead of 19.9; downtime stays within 0.7 GWh.",
-           icon="⚠️")
+    "- **Not calibrated on the data.**"
+)
+total_loss = (1 - (1 - losses / 100).prod()) * 100  # multiplicative, as pvlib.pvwatts_losses
+right.dataframe(
+    pd.concat([losses, pd.Series({"total (combined)": total_loss})]).to_frame("%").style.format("{:.2f}"),
+    width="stretch",
+)
+st.warning(
+    "**The 6.34 % design losses are an assumption**, not a PVsyst result (there is no report for this plant). "
+    "At 4 % / 8 % the running shortfall is 24.2 / 16.8 GWh instead of 19.9; downtime stays within 0.7 GWh.",
+    icon="⚠️",
+)
 
 # --- KPIs ------------------------------------------------------------------------------------
 st.header("Definitions")
@@ -92,7 +117,8 @@ st.markdown(
     "channel-loss days. Quote 2023 as **0.79**.\n"
     "- **Channel-loss day:** a local day with sum(inverters) / (meter × 1.022) below 0.97. The factor 1.022 is the "
     "ratio on days when everything reports; one percentage point of it moves the 2023 credit by about 0.35 GWh. "
-    "The data cannot say *which* inverter lies, so the correction is plant-level.")
+    "The data cannot say *which* inverter lies, so the correction is plant-level."
+)
 
 # --- waterfall -------------------------------------------------------------------------------
 st.header("Loss waterfall")
@@ -102,14 +128,17 @@ st.markdown(
     "reconciliation → after inverters (= **metered**, the revenue basis). Each step is the difference of two "
     "neighbouring cumulative quantities, so the steps add up by construction, and the export stops if any month "
     "does not close. Swapping the order of temperature and DC losses moves 0.4-0.5 % of nominal energy. Clipping is "
-    "at most 0.08 % (upper bound) and no curtailment plateau was found.")
+    "at most 0.08 % (upper bound) and no curtailment plateau was found."
+)
 
 # --- price -----------------------------------------------------------------------------------
 st.header("Price")
-st.markdown(f"**{price['base']:.2f} USD/MWh**, flat, band ±30 % ({price['low']:.2f} … {price['high']:.2f}): Georgia Power "
-            "avoided energy cost for 2026, *Solar Ground-Mounted Fixed Tilt*, from the 2025 projections filed with the "
-            "Georgia PSC (filing #223157, dockets 4822 / 16573). The plant is utility-scale and front-of-meter, in "
-            "Georgia, which has no ISO / RTO, so there are no nodal prices and no EIA wholesale hub.")
+st.markdown(
+    f"**{price['base']:.2f} USD/MWh**, flat, band ±30 % ({price['low']:.2f} … {price['high']:.2f}): Georgia Power "
+    "avoided energy cost for 2026, *Solar Ground-Mounted Fixed Tilt*, from the 2025 projections filed with the "
+    "Georgia PSC (filing #223157, dockets 4822 / 16573). The plant is utility-scale and front-of-meter, in "
+    "Georgia, which has no ISO / RTO, so there are no nodal prices and no EIA wholesale hub."
+)
 common.price_caveat()
 
 # --- assumptions -----------------------------------------------------------------------------
@@ -127,7 +156,8 @@ st.markdown(
     "| Own-norm window | 121 days | faults up to about 60 days |\n"
     "| False-alarm budget | 1 % of clean inverter-days | detection rates |\n"
     "| Meter-verdict thresholds | 0.97 / 0.95 | wording of the episode table |\n"
-    "| Price | 30.19 USD/MWh ± 30 % | every USD figure |\n")
+    "| Price | 30.19 USD/MWh ± 30 % | every USD figure |\n"
+)
 
 # --- limits ----------------------------------------------------------------------------------
 st.header("What these numbers do not say")
@@ -141,4 +171,5 @@ st.warning(
     "November-December.\n"
     "- The Open-Meteo data are **reanalysis (ERA5, IFS), not satellite data**.\n"
     "- One plant. The second system (1200, Linthicum Heights, MD) for a scalability check is not part of this version.",
-    icon="⚠️")
+    icon="⚠️",
+)
